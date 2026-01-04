@@ -1,0 +1,62 @@
+@use "@/styles/variables" as *;
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+  color: var(--text);
+  background: radial-gradient(1200px 600px at 20% 0%, rgba(122, 11, 11, 0.10), transparent 60%),
+    radial-gradient(900px 500px at 90% 20%, rgba(255, 246, 232, 0.60), transparent 55%),
+    var(--bg);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid rgba(122, 11, 11, 0.35);
+  outline-offset: 2px;
+}
+
+.container {
+  width: min(1100px, calc(100% - 32px));
+  margin-inline: auto;
+}
+
+.h1 {
+  font-size: 24px;
+  margin: 0 0 10px;
+}
+
+.h2 {
+  font-size: 18px;
+  margin: 0 0 10px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.hr {
+  height: 1px;
+  background: var(--border);
+  border: 0;
+  margin: 16px 0;
+}

@@ -1,0 +1,35 @@
+@use "@/styles/mixins" as *;
+
+.backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(43, 27, 23, 0.35);
+    display: grid;
+    place-items: center;
+    padding: 18px;
+    z-index: 50;
+}
+
+.modal {
+    @include card;
+    width: min(720px, 100%);
+    max-height: calc(100vh - 36px);
+    overflow: auto;
+}
+
+.head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 14px 0;
+}
+
+.title {
+    font-weight: 900;
+    font-size: 16px;
+}
+
+.body {
+    padding: 14px;
+}

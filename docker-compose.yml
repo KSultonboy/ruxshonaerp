@@ -1,0 +1,29 @@
+services:
+  db:
+    image: postgres:16
+    container_name: ruxshona_db
+    environment:
+      POSTGRES_USER: ruxshona
+      POSTGRES_PASSWORD: ruxshona_pass
+      POSTGRES_DB: ruxshonaerp
+    volumes:
+      - ruxshona_db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  api:
+    build:
+      context: ./server
+    container_name: ruxshona_api
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: "postgresql://ruxshona:ruxshona_pass@db:5432/ruxshonaerp?schema=public"
+      CORS_ORIGIN: "http://localhost:3001"
+    depends_on:
+      - db
+    ports:
+      - "8080:3000"
+
+volumes:
+  ruxshona_db_data:

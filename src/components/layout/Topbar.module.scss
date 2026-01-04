@@ -1,0 +1,33 @@
+@use "@/styles/mixins" as *;
+
+.topbar {
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+    background: rgba(255, 250, 241, 0.65);
+    backdrop-filter: blur(8px);
+}
+
+.row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.hello {
+    font-weight: 800;
+}
+
+.small {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 2px;
+}
+
+.pill {
+    @include soft-border;
+    padding: 10px 12px;
+    background: var(--cream);
+    color: var(--primary);
+    font-weight: 800;
+}
