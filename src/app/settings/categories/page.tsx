@@ -8,10 +8,10 @@ import { Table, T } from "@/components/ui/Table";
 import { ensureSeed } from "@/lib/seed";
 import type { Category } from "@/lib/types";
 
-// ✅ Mahsulot kategoriyalari servisi (agar sizda nomi boshqacha bo‘lsa shu importni moslang)
+// ✅ Mahsulot kategoriyalari servisi (sizda path boshqacha bo‘lsa o‘zgartiring)
 import { categoriesService } from "@/services/categories";
 
-// ✅ Xarajat kategoriyalari servisi
+// ✅ Xarajat kategoriyalari servisi (siz bergan fayl bilan mos)
 import { expenseCategoriesService } from "@/services/expenseCategories.service";
 
 export default function CategoriesPage() {
@@ -20,14 +20,15 @@ export default function CategoriesPage() {
 
     const [productCats, setProductCats] = useState<Category[]>([]);
     const [expenseCats, setExpenseCats] = useState<Category[]>([]);
+
     const [loading, setLoading] = useState(false);
-    const [err, setErr] = useState<string>("");
+    const [err, setErr] = useState("");
 
     async function refresh() {
         setLoading(true);
         setErr("");
         try {
-            // agar ensureSeed async bo‘lsa — await; sync bo‘lsa ham zarar qilmaydi
+            // ensureSeed async bo‘lsa ham, sync bo‘lsa ham ishlaydi
             await Promise.resolve(ensureSeed());
 
             const [pc, ec] = await Promise.all([
@@ -35,8 +36,8 @@ export default function CategoriesPage() {
                 expenseCategoriesService.list(),
             ]);
 
-            setProductCats(pc);
-            setExpenseCats(ec);
+            setProductCats(pc as unknown as Category[]);
+            setExpenseCats(ec as unknown as Category[]);
         } catch (e: any) {
             setErr(e?.message || "Xatolik yuz berdi");
         } finally {
@@ -46,6 +47,7 @@ export default function CategoriesPage() {
 
     useEffect(() => {
         refresh();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     return (
@@ -65,6 +67,7 @@ export default function CategoriesPage() {
                 </div>
             )}
 
+            {/* ===================== PRODUCT CATEGORIES ===================== */}
             <Card>
                 <div className="h2">Mahsulot kategoriyalari</div>
 
@@ -83,14 +86,19 @@ export default function CategoriesPage() {
                         disabled={loading}
                         onClick={async () => {
                             if (!name1.trim()) return;
+
                             setLoading(true);
                             setErr("");
                             try {
-                                await categoriesService.create(name1.trim());
+                                // ✅ agar sizning categoriesService.create string qabul qilsa:
+                                // await categoriesService.create(name1.trim());
+                                // ✅ agar object qabul qilsa (xuddi expense kabi):
+                                await categoriesService.create({ name: name1.trim() } as any);
+
                                 setName1("");
                                 await refresh();
                             } catch (e: any) {
-                                setErr(e?.message || "Kategoria qo‘shishda xatolik");
+                                setErr(e?.message || "Mahsulot kategoriyasini qo‘shishda xatolik");
                             } finally {
                                 setLoading(false);
                             }
@@ -120,6 +128,7 @@ export default function CategoriesPage() {
                                             disabled={loading}
                                             onClick={async () => {
                                                 if (!confirm("O‘chirish?")) return;
+
                                                 setLoading(true);
                                                 setErr("");
                                                 try {
@@ -150,6 +159,7 @@ export default function CategoriesPage() {
                 </Table>
             </Card>
 
+            {/* ===================== EXPENSE CATEGORIES ===================== */}
             <Card>
                 <div className="h2">Xarajat kategoriyalari</div>
 
@@ -168,14 +178,17 @@ export default function CategoriesPage() {
                         disabled={loading}
                         onClick={async () => {
                             if (!name2.trim()) return;
+
                             setLoading(true);
                             setErr("");
                             try {
-                                await expenseCategoriesService.create(name2.trim());
+                                // ✅ TO‘G‘RI: service object kutadi
+                                await expenseCategoriesService.create({ name: name2.trim() });
+
                                 setName2("");
                                 await refresh();
                             } catch (e: any) {
-                                setErr(e?.message || "Xarajat kategoriyasi qo‘shishda xatolik");
+                                setErr(e?.message || "Xarajat kategoriyasini qo‘shishda xatolik");
                             } finally {
                                 setLoading(false);
                             }
@@ -205,6 +218,7 @@ export default function CategoriesPage() {
                                             disabled={loading}
                                             onClick={async () => {
                                                 if (!confirm("O‘chirish?")) return;
+
                                                 setLoading(true);
                                                 setErr("");
                                                 try {
