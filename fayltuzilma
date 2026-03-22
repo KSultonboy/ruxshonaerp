@@ -1,0 +1,239 @@
+﻿Ruxshona ERP UI - Fayl Tuzilmasi, Loyiha Maqsadi va Printer Diagnostika
+======================================================================
+
+Yangilangan sana: 2026-02-25
+Repo: ruxshona-erp-ui
+
+1) Loyiha maqsadi
+-----------------
+Bu loyiha "Ruxshona Tort" korxonasi uchun ERP desktop/web interfeysini beradi.
+Asosiy vazifalar:
+- Sotuv (POS) va chek chiqarish
+- Ishlab chiqarish va label (barcode) chop etish
+- Ombor kirim/chiqim, transfer, vazvrat
+- Filial/do'kon boshqaruvi
+- Xarajatlar, ish haqi, hisobotlar
+- Website platformasi uchun buyurtmalar/custom request/coupon boshqaruvi
+- Rollar va ruxsatlar (admin, sales, production va boshqalar)
+
+2) Arxitektura (qisqa)
+----------------------
+- Frontend: Next.js App Router (src/app)
+- UI komponentlar: src/components
+- Business servislar (API bilan ishlash): src/services
+- Utility va state helperlar: src/lib
+- Desktop qismi: Tauri (src-tauri)
+- Auto-update release oqimi: releases/ + scripts/create-updater-manifest.mjs
+
+3) Ildiz (root) papka tuzilmasi
+-------------------------------
+.
+|-- src/                         # Asosiy Next.js kod bazasi
+|-- src-tauri/                   # Desktop (Tauri/Rust) qismi
+|-- public/                      # Statik assetlar
+|-- scripts/                     # Build/deploy yordamchi skriptlar
+|-- releases/                    # Tayyor .exe/.sig/latest.json artefaktlar
+|-- docs/                        # Ichki hujjatlar
+|-- infra/                       # Infra/deploy yordamchi fayllar
+|-- test/                        # Testlar (agar mavjud bo'lsa)
+|-- dist-electron*/              # Tajriba build natijalari (generated)
+|-- .next/                       # Next build cache/output (generated)
+|-- out/                         # Export/build output (generated)
+|-- package.json                 # NPM script va dependencylar
+|-- next.config.ts               # Next sozlamalari
+|-- tailwind.config.js           # Tailwind sozlamalari
+|-- tsconfig.json                # TypeScript sozlamalari
+|-- electron-main.js             # Electron test/legacy entry (agar ishlatilsa)
+|-- UPDATE_YUBORISH_KETMA_KETLIGI.md  # Update publish yo'riqnomasi
+|-- fayltuzilma                  # Shu hujjat
+
+4) src/ ichki tuzilmasi
+-----------------------
+
+src/
+|-- app/                         # Route/page lar (App Router)
+|   |-- login/
+|   |-- dashboard/
+|   |-- sales/
+|   |-- production/
+|   |-- warehouse/
+|   |-- transfer/
+|   |-- returns/
+|   |-- cash/
+|   |-- expenses/
+|   |-- wages/
+|   |-- orders/
+|   |-- products/
+|   |-- reports/
+|   |-- ikpu/
+|   |-- platforms/
+|   |-- settings/
+|   |   |-- receipt/             # Chek/label shablon sozlamalari
+|   |   |-- update/              # Desktop update UI
+|   |   |-- users/
+|   |   |-- permissions/
+|   |   |-- branches/
+|   |   |-- shops/
+|   |   |-- categories/
+|   |   |-- units/
+|   |   |-- alerts/
+|   |   `-- audit/
+|   |-- layout.tsx               # Global app layout
+|   |-- globals.css              # Global stil
+|   `-- page.tsx                 # Root sahifa
+|
+|-- components/
+|   |-- auth/                    # Auth provider/context
+|   |-- i18n/                    # Til provider
+|   |-- layout/                  # Sidebar/Topbar/AppShell
+|   |-- pos/                     # Chek komponentlari (Receipt)
+|   |-- ui/                      # Reusable UI elementlar
+|   |-- expenses/
+|   |-- platforms/
+|   `-- system/
+|
+|-- services/                    # API endpointlar bo'yicha service layer
+|   |-- http.ts                  # Umumiy HTTP wrapper
+|   |-- config.ts                # API URL va service mode
+|   |-- auth.ts
+|   |-- sales.ts
+|   |-- warehouse.ts
+|   |-- transfers.ts
+|   |-- returns.ts
+|   |-- orders.ts
+|   |-- products.ts
+|   |-- branches.ts
+|   |-- shops.ts
+|   |-- reports.ts
+|   |-- receipt-template.ts      # Chek/label template state
+|   `-- ... boshqa modul servislar
+|
+|-- lib/
+|   |-- desktop-printer.ts       # Printer tanlash/default qilish
+|   |-- desktop-updater.ts       # Desktop auto-update helper
+|   |-- desktop-window.ts        # Desktop oynasi (fullscreen va boshqalar)
+|   |-- auth-store.ts            # Auth storage helper
+|   |-- roles.ts                 # Rol normalizatsiya/ruxsat
+|   |-- i18n.ts                  # Til lug'at/helper
+|   |-- format.ts, mask.ts, csv.ts, storage.ts
+|   `-- types.ts
+|
+|-- types/                       # Qo'shimcha tiplar
+`-- styles/                      # Qo'shimcha style fayllar
+
+5) src-tauri/ (desktop) tuzilmasi
+---------------------------------
+
+src-tauri/
+|-- src/
+|   |-- main.rs                  # Tauri entry
+|   `-- lib.rs                   # Rust commandlar: list_printers, get_default_printer, set_default_printer
+|-- tauri.conf.json              # Desktop app config (window, updater endpoint, bundle)
+|-- Cargo.toml                   # Rust dependency/config
+|-- build.rs
+|-- icons/
+`-- capabilities/
+
+6) Build va release bilan bog'liq asosiy fayllar
+-------------------------------------------------
+- package.json scriptlar:
+  - npm run build
+  - npm run desktop:build:clean:signed
+  - npm run desktop:manifest
+- scripts/tauri-build-signed.mjs
+- scripts/create-updater-manifest.mjs
+- releases/latest.json
+- releases/Ruxshona-ERP-<version>-x64-setup.exe
+- releases/Ruxshona-ERP-<version>-x64-setup.exe.sig
+
+7) Printerga aloqador joylar (aniq)
+-----------------------------------
+A) Frontend (TypeScript)
+- src/lib/desktop-printer.ts
+  - Printer rejimlari: RECEIPT / LABEL
+  - Ro'yxat olish: listDesktopPrinters()
+  - Default o'rnatish: setDesktopDefaultPrinter()
+  - Auto tanlash: ensureDefaultPrinterForMode(), autoConfigureDefaultPrinterForRole(), autoConfigureDefaultPrinterForContext()
+  - Local saqlash: desktop_printer_receipt, desktop_printer_label
+  - Hozirgi prioritet nomlar: RUX_RECEIPT va RUX_LABEL
+
+- src/app/sales/sell/page.tsx
+  - Chek printer dropdown
+  - "Chek chiqarilsin" flag
+  - printCurrentWindowWithPrinter() orqali receipt print
+
+- src/components/pos/Receipt.tsx
+  - Receipt print CSS
+  - Print izolatsiya: body[data-receipt-print="1"] orqali faqat receipt ko'rinadi
+  - @page size qog'oz eniga bog'langan (paperWidthMm)
+
+- src/app/production/entry/page.tsx
+  - Ishlab chiqarish label print logikasi
+  - Har bir label alohida page konteynerda chiqariladi
+  - Pop-up print (fallback iframe)
+
+- src/app/ikpu/page.tsx
+  - Barcode label print logikasi
+  - Printdan oldin LABEL printer ensure qilinadi
+
+- src/app/settings/receipt/page.tsx
+  - Label va chek shabloni sozlamalari:
+    - paperWidthMm
+    - labelWidthMm / labelHeightMm
+    - labelBarcodeWidthMm / labelBarcodeHeightMm
+    - showLabelProductionDate va boshqa flaglar
+
+B) Desktop bridge (Rust / Tauri)
+- src-tauri/src/lib.rs
+  - list_printers (PowerShell orqali)
+  - get_default_printer
+  - set_default_printer
+  - PowerShell hidden/no-window rejimida ishlaydi (CREATE_NO_WINDOW)
+
+- src-tauri/tauri.conf.json
+  - additionalBrowserArgs ichida --kiosk-printing bor
+  - bu print dialogsiz avtomatik printga yordam beradi
+
+C) Windows tomoni (OS/Driver)
+- Printer nomlari amalda standartlashtirilgan:
+  - RUX_RECEIPT (chek printer)
+  - RUX_LABEL (label printer)
+- Windows default auto-manage o'chirilgan bo'lishi kerak:
+  - LegacyDefaultPrinterMode = 1
+
+8) Oxirgi kuzatilgan xatoliklar va holati
+-----------------------------------------
+1) Ishlab chiqarishda sotuv cheki chiqib ketishi
+- Sabab: global receipt print CSS ishlab chiqarish print contextga aralashishi.
+- Tuzatish: Receipt CSS body[data-receipt-print="1"] bilan cheklangan.
+- Holat: Kod darajasida tuzatilgan.
+
+2) Label eniga/aylangan holatda (landscape) chiqib ketishi
+- Sabab: driver orientation yoki page context nomosligi.
+- Tuzatish: label printda alohida page wrapper ishlatildi; popup contextga chiqarildi.
+- Holat: Kod darajasida tuzatilgan, lekin driver sozlamasi ham shart.
+- Driver talabi: Orientation=Portrait, Scale=100%, Paper size appdagi mm bilan bir xil.
+
+3) Label matni bir nechta stiker orasiga siljib ketishi
+- Sabab: continuous media + gap calibration noto'g'ri yoki page break nomos.
+- Tuzatish: har label alohida page/height bilan chop etiladi.
+- Holat: Kod tuzatildi; printerda Gap/Label calibration qilish kerak.
+
+4) Sotuvda printerga hech narsa ketmasligi
+- Sabab: noto'g'ri default printer yoki OS default auto-switch konflikti.
+- Tuzatish: RUX_RECEIPT prioritet, auto-manage off, stored printer qo'llanadi.
+- Holat: Kodda tuzatilgan; foydalanuvchi muhitida dropdownda to'g'ri printer tanlanganini tekshirish kerak.
+
+5) Login/open paytida blocking popup/alert chiqishi
+- Sabab: eski alert logic.
+- Tuzatish: blocking alert olib tashlangan.
+- Holat: Tuzatilgan.
+
+9) Tezkor diagnostika checklist (printer)
+-----------------------------------------
+1. Get-Printer bilan RUX_RECEIPT va RUX_LABEL borligini tekshirish.
+2. LegacyDefaultPrinterMode=1 ekanini tekshirish.
+3. Sales sahifasida receipt dropdown -> RUX_RECEIPT.
+4. Production sahifasida label dropdown -> RUX_LABEL.
+5. Label printer driverda paper size/orientation/scale/gap sensor sozlamasi to'g'ri ekanini tekshirish.
+

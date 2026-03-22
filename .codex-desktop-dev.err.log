@@ -1,0 +1,6 @@
+     Running BeforeDevCommand (`npm run dev`)
+     Running DevCommand (`cargo  run --no-default-features --color always --`)
+        Info Watching D:\ONGOINGPROJECTS\RuxshonaTort\ruxshona-erp-ui\src-tauri for changes...
+[1m[92m    Finished[0m `dev` profile [unoptimized + debuginfo] target(s) in 0.45s
+[1m[92m     Running[0m `target\debug\app.exe`
+       Error The "beforeDevCommand" terminated with a non-zero status code.

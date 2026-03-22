@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import { Table, T } from "@/components/ui/Table";
+import Modal from "@/components/ui/Modal";
 import ProductCatalogModal from "@/components/logistics/ProductCatalogModal";
 import { returnsService } from "@/services/returns";
 import { productsService } from "@/services/products";
@@ -42,7 +43,7 @@ export default function ReturnsBranchesPage() {
   const { user } = useAuth();
   const { t } = useI18n();
 
-  const isSales = user?.role === "SALES";
+  const isSales = user?.role === "SALES" || user?.role === "MANAGER";
   const isAdmin = user?.role === "ADMIN";
   const canWrite = isSales || isAdmin;
 
@@ -56,6 +57,8 @@ export default function ReturnsBranchesPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [lastReturn, setLastReturn] = useState<ReturnReceiptData | null>(null);
+  const [confirmPrintOpen, setConfirmPrintOpen] = useState(false);
+  const submitInProgressRef = useRef(false);
 
   const productOptions = useMemo(() => products.map((p) => ({ value: p.id, label: p.name })), [products]);
 
@@ -111,6 +114,82 @@ export default function ReturnsBranchesPage() {
       });
       return next;
     });
+  }
+
+  async function submitReturn(shouldPrintReceipt: boolean) {
+    if (submitInProgressRef.current) return;
+    const payload = items
+      .map((item) => ({ productId: item.productId, quantity: Number(item.quantity) }))
+      .filter((item) => item.productId && item.quantity > 0);
+
+    const activeBranchId = isSales ? user?.branchId ?? "" : branchId;
+    if (!activeBranchId) {
+      toast.error(t("Xatolik"), t("Filial tanlang"));
+      return;
+    }
+    if (payload.length === 0) {
+      toast.error(t("Xatolik"), t("Mahsulot tanlang"));
+      return;
+    }
+
+    submitInProgressRef.current = true;
+    setLoading(true);
+    try {
+      const savedReturn = editingReturnId
+        ? await returnsService.update(editingReturnId, {
+            sourceType: "BRANCH",
+            branchId: activeBranchId,
+            note,
+            items: payload,
+          })
+        : await returnsService.create({
+            sourceType: "BRANCH",
+            branchId: activeBranchId,
+            note,
+            items: payload,
+          });
+
+      const receiptItems = payload.map((item) => ({
+        name: products.find((product) => product.id === item.productId)?.name ?? item.productId,
+        quantity: item.quantity,
+      }));
+      const totalQuantity = receiptItems.reduce((sum, item) => sum + item.quantity, 0);
+      const receiptData: ReturnReceiptData = {
+        id: savedReturn.id ?? String(Date.now()),
+        date: savedReturn.date ?? new Date().toLocaleString(),
+        productName: receiptItems.map((item) => item.name).join(", "),
+        quantity: totalQuantity,
+        sourceLabel: t("Filial"),
+        sourceName: branches.find((item) => item.id === activeBranchId)?.name || t("Markaziy"),
+        items: receiptItems,
+      };
+
+      flushSync(() => {
+        setLastReturn(receiptData);
+      });
+
+      if (shouldPrintReceipt) {
+        await waitForNextPaint();
+        try {
+          await printCurrentWindowByMode("RECEIPT");
+        } catch (printError: unknown) {
+          const message = printError instanceof Error ? printError.message : t("Chek chiqarilmadi");
+          toast.error(t("Xatolik"), message);
+        }
+      }
+
+      setNote("");
+      if (!isSales) setBranchId("");
+      setItems([createDraftRow()]);
+      setEditingReturnId(null);
+      await refresh();
+      toast.success(t("Saqlandi"));
+    } catch (error: any) {
+      toast.error(t("Xatolik"), error?.message || t("Saqlab bo'lmadi"));
+    } finally {
+      submitInProgressRef.current = false;
+      setLoading(false);
+    }
   }
 
   return (
@@ -193,76 +272,7 @@ export default function ReturnsBranchesPage() {
           <div className="mt-4 flex flex-wrap gap-3">
             <Button
               disabled={loading}
-              onClick={async () => {
-                const payload = items
-                  .map((i) => ({ productId: i.productId, quantity: Number(i.quantity) }))
-                  .filter((i) => i.productId && i.quantity > 0);
-
-                const activeBranchId = isSales ? user?.branchId ?? "" : branchId;
-                if (!activeBranchId) {
-                  toast.error(t("Xatolik"), t("Filial tanlang"));
-                  return;
-                }
-                if (payload.length === 0) {
-                  toast.error(t("Xatolik"), t("Mahsulot tanlang"));
-                  return;
-                }
-
-                setLoading(true);
-                try {
-                  const savedReturn = editingReturnId
-                    ? await returnsService.update(editingReturnId, {
-                        sourceType: "BRANCH",
-                        branchId: activeBranchId,
-                        note,
-                        items: payload,
-                      })
-                    : await returnsService.create({
-                        sourceType: "BRANCH",
-                        branchId: activeBranchId,
-                        note,
-                        items: payload,
-                      });
-
-                  const receiptItems = payload.map((item) => ({
-                    name: products.find((p) => p.id === item.productId)?.name ?? item.productId,
-                    quantity: item.quantity,
-                  }));
-                  const totalQuantity = receiptItems.reduce((sum, item) => sum + item.quantity, 0);
-                  const receiptData: ReturnReceiptData = {
-                    id: savedReturn.id ?? String(Date.now()),
-                    date: savedReturn.date ?? new Date().toLocaleString(),
-                    productName: receiptItems.map((i) => i.name).join(", "),
-                    quantity: totalQuantity,
-                    sourceLabel: t("Filial"),
-                    sourceName: branches.find((b) => b.id === activeBranchId)?.name || t("Markaziy"),
-                    items: receiptItems,
-                  };
-
-                  flushSync(() => {
-                    setLastReturn(receiptData);
-                  });
-
-                  await waitForNextPaint();
-                  try {
-                    await printCurrentWindowByMode("RECEIPT");
-                  } catch (printError: unknown) {
-                    const message = printError instanceof Error ? printError.message : t("Chek chiqarilmadi");
-                    toast.error(t("Xatolik"), message);
-                  }
-
-                  setNote("");
-                  if (!isSales) setBranchId("");
-                  setItems([createDraftRow()]);
-                  setEditingReturnId(null);
-                  await refresh();
-                  toast.success(t("Saqlandi"));
-                } catch (e: any) {
-                  toast.error(t("Xatolik"), e?.message || t("Saqlab bo'lmadi"));
-                } finally {
-                  setLoading(false);
-                }
-              }}
+              onClick={() => setConfirmPrintOpen(true)}
             >
               {editingReturnId ? t("Tahrirlashni saqlash") : t("Saqlash")}
             </Button>
@@ -283,6 +293,33 @@ export default function ReturnsBranchesPage() {
           </div>
         </Card>
       ) : null}
+
+      <Modal title={t("Chek chiqarilsinmi?")} open={confirmPrintOpen} onClose={() => setConfirmPrintOpen(false)}>
+        <div className="space-y-4">
+          <p className="text-sm text-cocoa-700">{t("Saqlangandan keyin chek chiqarilsinmi?")}</p>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              variant="ghost"
+              disabled={loading}
+              onClick={() => {
+                setConfirmPrintOpen(false);
+                void submitReturn(false);
+              }}
+            >
+              {t("Yo'q")}
+            </Button>
+            <Button
+              disabled={loading}
+              onClick={() => {
+                setConfirmPrintOpen(false);
+                void submitReturn(true);
+              }}
+            >
+              {t("Ha")}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {lastReturn && (
         <div className="hidden print:block">

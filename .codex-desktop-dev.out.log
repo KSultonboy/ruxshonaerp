@@ -1,0 +1,22 @@
+
+> ruxshona-erp-ui@0.1.35 desktop:dev
+> npx @tauri-apps/cli dev
+
+
+> ruxshona-erp-ui@0.1.35 dev
+> next dev --webpack -p 3000
+
+▲ Next.js 16.1.1 (webpack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.2:3000
+- Environments: .env.local
+
+✓ Starting...
+✓ Ready in 2.1s
+○ Compiling / ...
+ GET / 200 in 6.5s (compile: 5.7s, render: 755ms)
+ GET /login 200 in 954ms (compile: 917ms, render: 38ms)
+ GET /login 200 in 48ms (compile: 10ms, render: 37ms)
+ GET /login 200 in 297ms (compile: 8ms, render: 288ms)
+ GET /login 200 in 89ms (compile: 6ms, render: 82ms)
+[?25h

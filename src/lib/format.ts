@@ -7,3 +7,7 @@ export function safeDateLabel(yyyy_mm_dd: string) {
     const [y, m, d] = yyyy_mm_dd.split("-");
     return `${d}.${m}.${y}`;
 }
+
+export function formatCurrency(value: number) {
+    return moneyUZS(value);
+}

@@ -15,7 +15,7 @@ const local: IUnitsService = {
         setJSON(STORAGE_KEYS.units, [unit, ...items]);
         return unit;
     },
-    async update(id: string, patch: { name: string; short: string }) {
+    async update(id: string, patch: { name?: string; short?: string }) {
         const items = getJSON<Unit[]>(STORAGE_KEYS.units, []).map((u) =>
             u.id === id ? { ...u, ...patch } : u
         );

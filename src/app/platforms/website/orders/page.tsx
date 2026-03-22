@@ -1,5 +1,11 @@
-import { redirect } from "next/navigation";
+import PlatformOrdersPage from "@/components/platforms/PlatformOrdersPage";
 
 export default function WebsiteOrdersPage() {
-  redirect("/orders/receive");
+  return (
+    <PlatformOrdersPage
+      platformKey="website"
+      title="Website buyurtmalari"
+      subtitle="Website orqali tushgan buyurtmalar oqimi"
+    />
+  );
 }

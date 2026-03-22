@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Logo from "./Logo";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useI18n } from "@/components/i18n/I18nProvider";
@@ -34,17 +34,27 @@ type NavIcon =
   | "platform"
   | "qr";
 
-type NavItem = {
+type NavLink = {
   href: string;
   label: string;
   icon: NavIcon;
 };
 
+type NavSection = {
+  type: "section";
+  key: string;
+  label: string;
+  icon: NavIcon;
+  items: NavEntry[];
+};
+
+type NavEntry = NavLink | NavSection;
+
 type NavGroup = {
   key: string;
   label: string;
   icon: NavIcon;
-  items: NavItem[];
+  items: NavEntry[];
 };
 
 interface SidebarProps {
@@ -52,13 +62,13 @@ interface SidebarProps {
   setIsOpen: (open: boolean) => void;
 }
 
-const Chevron = ({ open, active }: { open: boolean; active: boolean }) => (
+const Chevron = ({ open, inverted = false }: { open: boolean; inverted?: boolean }) => (
   <svg
     viewBox="0 0 24 24"
-    className={`h-4 w-4 transition ${open ? "rotate-180" : ""} ${active ? "text-cream-50" : "text-cocoa-400"}`}
+    className={`h-3.5 w-3.5 transition ${open ? "rotate-180" : ""} ${inverted ? "text-white" : "text-slate-500"}`}
     aria-hidden
   >
-    <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
   </svg>
 );
 
@@ -229,9 +239,34 @@ function isItemActive(pathname: string, query: URLSearchParams, href: string): b
   return true;
 }
 
-function getGroupsForRole(role: "ADMIN" | "SALES" | "PRODUCTION", t: (key: string) => string): NavGroup[] {
-  if (role === "SALES") {
-    return [
+function isNavSection(entry: NavEntry): entry is NavSection {
+  return "type" in entry && entry.type === "section";
+}
+
+function isEntryActive(pathname: string, query: URLSearchParams, entry: NavEntry): boolean {
+  if (isNavSection(entry)) {
+    return entry.items.some((child) => isEntryActive(pathname, query, child));
+  }
+  return isItemActive(pathname, query, entry.href);
+}
+
+function getGroupsForRole(
+  role: "ADMIN" | "SALES" | "MANAGER" | "PRODUCTION",
+  t: (key: string) => string
+): NavGroup[] {
+  const productionGroup: NavGroup = {
+    key: "production",
+    label: t("Ishlab chiqarish"),
+    icon: "warehouse",
+    items: [
+      { href: "/warehouse", label: t("Markaziy ombor"), icon: "warehouse" },
+      { href: "/production/entry", label: t("Ishlab chiqarilgan mahsulot kiritish"), icon: "add" },
+      { href: "/production/history", label: t("Tarix"), icon: "report" },
+    ],
+  };
+
+  if (role === "SALES" || role === "MANAGER") {
+    const salesAndLogistics: NavGroup[] = [
       {
         key: "sales",
         label: t("Sotuv"),
@@ -246,24 +281,24 @@ function getGroupsForRole(role: "ADMIN" | "SALES" | "PRODUCTION", t: (key: strin
           { href: "/sales/shift", label: t("Smena"), icon: "shift" },
         ],
       },
-    ];
-  }
-
-  if (role === "PRODUCTION") {
-    return [
       {
-        key: "production",
-        label: t("Ishlab chiqarish"),
-        icon: "warehouse",
+        key: "logistics",
+        label: t("Transfer va vazvrat"),
+        icon: "transfer",
         items: [
-          { href: "/warehouse", label: t("Markaziy ombor"), icon: "warehouse" },
-          { href: "/production/entry", label: t("Ishlab chiqarilgan mahsulot kiritish"), icon: "add" },
-          { href: "/production/history", label: t("Tarix"), icon: "report" },
+          { href: "/logistics/cashier", label: t("Transfer/Vazvrat kassasi"), icon: "cash" },
           { href: "/transfer/branches", label: t("Filiallarga transfer"), icon: "transfer" },
           { href: "/transfer/shops", label: t("Do'konlarga transfer"), icon: "transfer" },
+          { href: "/returns/branches", label: t("Filial vazvrat"), icon: "return" },
+          { href: "/returns/shops", label: t("Do'kon vazvrat"), icon: "return" },
         ],
       },
     ];
+    return role === "MANAGER" ? [...salesAndLogistics, productionGroup] : salesAndLogistics;
+  }
+
+  if (role === "PRODUCTION") {
+    return [productionGroup];
   }
 
   return [
@@ -276,6 +311,7 @@ function getGroupsForRole(role: "ADMIN" | "SALES" | "PRODUCTION", t: (key: strin
         { href: "/dashboard/branches", label: t("Filiallar"), icon: "branch" },
         { href: "/dashboard/shops", label: t("Do'konlar"), icon: "shop" },
         { href: "/dashboard/branches/photos", label: t("Filial rasmlari"), icon: "camera" },
+        { href: "/shifts", label: t("Smenalar"), icon: "shift" },
         { href: "/reports", label: t("Hisobotlar"), icon: "report" },
         { href: "/wages", label: t("Ish haqi"), icon: "report" },
       ],
@@ -303,6 +339,7 @@ function getGroupsForRole(role: "ADMIN" | "SALES" | "PRODUCTION", t: (key: strin
         { href: "/cash/shops", label: t("Do'konlardan olish"), icon: "shop" },
         { href: "/expenses?new=1", label: t("Xarajat kiritish"), icon: "expenses" },
         { href: "/expenses", label: t("Xarajatlar"), icon: "expenses" },
+        { href: "/expenses/items", label: t("Xarajat nomlari"), icon: "categories" },
       ],
     },
     {
@@ -310,6 +347,7 @@ function getGroupsForRole(role: "ADMIN" | "SALES" | "PRODUCTION", t: (key: strin
       label: t("Transfer va vazvrat"),
       icon: "transfer",
       items: [
+        { href: "/logistics/cashier", label: t("Transfer/Vazvrat kassasi"), icon: "cash" },
         { href: "/transfer/branches", label: t("Filiallarga transfer"), icon: "transfer" },
         { href: "/transfer/shops", label: t("Do'konlarga transfer"), icon: "transfer" },
         { href: "/returns/branches", label: t("Filial vazvrat"), icon: "return" },
@@ -321,29 +359,44 @@ function getGroupsForRole(role: "ADMIN" | "SALES" | "PRODUCTION", t: (key: strin
       label: t("Buyurtmalar"),
       icon: "orders",
       items: [
-        { href: "/orders/receive", label: t("Buyurtmani qabul qilish"), icon: "orders" },
-        { href: "/orders/delivery", label: t("Yetkazib berish"), icon: "orders" },
-      ],
-    },
-    {
-      key: "website",
-      label: t("Website"),
-      icon: "website",
-      items: [
-        { href: "/platforms/website/dashboard", label: t("Statistika"), icon: "report" },
-        { href: "/platforms/website/customers", label: t("Mijozlar"), icon: "users" },
-        { href: "/platforms/website/custom-requests", label: t("Maxsus so'rovlar"), icon: "add" },
-        { href: "/platforms/website/coupons", label: t("Kuponlar"), icon: "categories" },
-        { href: "/platforms/website", label: t("Sozlamalar"), icon: "settings" },
-      ],
-    },
-    {
-      key: "platforms",
-      label: t("Platformalar"),
-      icon: "platform",
-      items: [
-        { href: "/platforms/telegram", label: t("Telegram bot"), icon: "telegram" },
-        { href: "/platforms/mobile", label: t("Mobile app"), icon: "mobile" },
+        {
+          type: "section",
+          key: "website",
+          label: t("Website"),
+          icon: "website",
+          items: [
+            { href: "/platforms/website/orders", label: t("Buyurtmalar"), icon: "orders" },
+            { href: "/platforms/website/dashboard", label: t("Analitika"), icon: "report" },
+            { href: "/platforms/website/customers", label: t("Mijozlar"), icon: "users" },
+            { href: "/platforms/website/custom-requests", label: t("Maxsus so'rovlar"), icon: "add" },
+            { href: "/platforms/website/coupons", label: t("Kuponlar"), icon: "categories" },
+            { href: "/platforms/website", label: t("Sozlamalar"), icon: "settings" },
+          ],
+        },
+        {
+          type: "section",
+          key: "telegram",
+          label: t("Telegram bot"),
+          icon: "telegram",
+          items: [
+            { href: "/platforms/telegram/orders", label: t("Buyurtmalar"), icon: "orders" },
+            { href: "/platforms/telegram/dashboard", label: t("Analitika"), icon: "report" },
+            { href: "/platforms/telegram/users", label: t("Cashback userlar"), icon: "users" },
+            { href: "/platforms/telegram/broadcast", label: t("Broadcast"), icon: "telegram" },
+            { href: "/platforms/telegram", label: t("Sozlamalar"), icon: "settings" },
+          ],
+        },
+        {
+          type: "section",
+          key: "mobile",
+          label: t("Mobile app"),
+          icon: "mobile",
+          items: [
+            { href: "/platforms/mobile/orders", label: t("Buyurtmalar"), icon: "orders" },
+            { href: "/platforms/mobile/dashboard", label: t("Analitika"), icon: "report" },
+            { href: "/platforms/mobile", label: t("Sozlamalar"), icon: "settings" },
+          ],
+        },
       ],
     },
     {
@@ -373,6 +426,7 @@ function getGroupsForRole(role: "ADMIN" | "SALES" | "PRODUCTION", t: (key: strin
 
 export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const { t } = useI18n();
@@ -384,7 +438,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const groupIsActive = useMemo(() => {
     const map = new Map<string, boolean>();
     for (const group of groups) {
-      const active = group.items.some((item) => isItemActive(pathname, searchParams, item.href));
+      const active = group.items.some((item) => isEntryActive(pathname, searchParams, item));
       map.set(group.key, active);
     }
     return map;
@@ -395,14 +449,26 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   useEffect(() => {
     setOpenGroups((prev) => {
       const next: Record<string, boolean> = { ...prev };
+      const ensureNestedKeys = (groupKey: string, entries: NavEntry[], parentKey = "") => {
+        for (const entry of entries) {
+          if (!isNavSection(entry)) continue;
+          const stateKey = [groupKey, parentKey, entry.key].filter(Boolean).join(":");
+          if (next[stateKey] === undefined) {
+            next[stateKey] = isEntryActive(pathname, searchParams, entry);
+          }
+          ensureNestedKeys(groupKey, entry.items, [parentKey, entry.key].filter(Boolean).join(":"));
+        }
+      };
+
       for (const group of groups) {
         if (next[group.key] === undefined) {
           next[group.key] = groupIsActive.get(group.key) ?? false;
         }
+        ensureNestedKeys(group.key, group.items);
       }
       return next;
     });
-  }, [groups, groupIsActive]);
+  }, [groups, groupIsActive, pathname, searchParams]);
 
   useEffect(() => {
     setIsOpen(false);
@@ -434,96 +500,146 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     };
   }, [role]);
 
-  const itemClass = (active: boolean) =>
-    `group flex w-full items-center gap-3 rounded-2xl border px-3 py-2 text-[13px] font-semibold leading-tight transition sm:px-4 sm:text-sm ${
+  const itemClass = (active: boolean, nested = false) =>
+    `group flex w-full items-center gap-3 rounded-xl border px-3 font-semibold leading-tight transition ${
+      nested ? "py-2 text-[12px] sm:px-3 sm:text-[13px]" : "py-2 text-[13px] sm:px-4 sm:text-sm"
+    } ${
       active
-        ? "border-berry-600 bg-berry-700 text-cream-50 shadow-glow"
-        : "border-transparent text-cocoa-600 hover:border-cream-200 hover:bg-cream-100/70 hover:text-cocoa-800"
+        ? "border-berry-700 bg-berry-700 text-white shadow-glow-sm"
+        : "border-transparent text-slate-400 hover:border-slate-700/50 hover:bg-slate-800/60 hover:text-slate-100"
     }`;
 
   const groupClass = (active: boolean) =>
-    `group flex w-full items-center gap-3 rounded-2xl border px-3 py-2 text-[13px] font-semibold transition sm:px-4 sm:text-sm ${
+    `group flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-[13px] font-semibold transition sm:px-4 sm:text-sm ${
       active
-        ? "border-berry-600 bg-berry-700 text-cream-50 shadow-glow"
-        : "border-cream-200 bg-cream-100 text-cocoa-700 hover:border-berry-200 hover:bg-cream-200/80"
+        ? "border-berry-700 bg-berry-700 text-white shadow-glow-sm"
+        : "border-slate-700/40 bg-slate-800/50 text-slate-300 hover:border-berry-800/60 hover:bg-slate-700/60 hover:text-slate-100"
     }`;
+
+  const sectionClass = (active: boolean, nested = false) =>
+    `group flex w-full items-center gap-3 rounded-xl border px-3 font-semibold transition ${
+      nested ? "py-2 text-[12px] sm:px-3 sm:text-[13px]" : "py-2 text-[13px] sm:px-4 sm:text-sm"
+    } ${
+      active
+        ? "border-slate-700/50 bg-slate-800 text-slate-100"
+        : "border-transparent text-slate-400 hover:border-slate-700/40 hover:bg-slate-800/40 hover:text-slate-200"
+    }`;
+
+  const renderEntries = (entries: NavEntry[], groupKey: string, depth = 0, parentKey = "") => (
+    <div
+      className={`flex flex-col gap-0.5 motion-safe:animate-fade-up ${
+        depth === 0 ? "ml-1" : "ml-3 border-l border-slate-700/60 pl-3"
+      }`}
+    >
+      {entries.map((entry) => {
+        if (isNavSection(entry)) {
+          const stateKey = [groupKey, parentKey, entry.key].filter(Boolean).join(":");
+          const activeEntry = isEntryActive(pathname, searchParams, entry);
+          const openEntry = openGroups[stateKey] ?? activeEntry;
+          const nextParentKey = [parentKey, entry.key].filter(Boolean).join(":");
+
+          return (
+            <div key={stateKey} className="flex flex-col gap-1">
+              <button
+                type="button"
+                onClick={() => setOpenGroups((prev) => ({ ...prev, [stateKey]: !openEntry }))}
+                className={sectionClass(activeEntry, depth > 0)}
+                aria-expanded={openEntry}
+              >
+                <Icon name={entry.icon} className="opacity-70" />
+                <span className="min-w-0 flex-1 truncate text-left">{entry.label}</span>
+                <Chevron open={openEntry} />
+              </button>
+              {openEntry ? renderEntries(entry.items, groupKey, depth + 1, nextParentKey) : null}
+            </div>
+          );
+        }
+
+        const activeItem = isItemActive(pathname, searchParams, entry.href);
+        return (
+          <Link key={entry.href} href={entry.href} prefetch={false} className={itemClass(activeItem, depth > 0)}>
+            <Icon name={entry.icon} className={activeItem ? "opacity-100" : "opacity-70"} />
+            <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+            {entry.href === "/orders/receive" && websiteIncomingCount > 0 ? (
+              <span className="rounded-full bg-berry-700 px-2 py-0.5 text-[11px] font-bold text-white">
+                {websiteIncomingCount}
+              </span>
+            ) : null}
+          </Link>
+        );
+      })}
+    </div>
+  );
 
   return (
     <>
       <div
-        className={`fixed inset-0 z-40 bg-cocoa-900/40 backdrop-blur-sm transition-opacity lg:hidden ${
+        className={`fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-sm transition-opacity lg:hidden ${
           isOpen ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
         onClick={() => setIsOpen(false)}
       />
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-[86vw] max-w-[320px] flex-col border-r border-cream-200/70 bg-cream-50/95 backdrop-blur transition-transform lg:static lg:w-64 lg:max-w-none lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-[86vw] max-w-[300px] flex-col border-r border-slate-700/60 bg-slate-900 transition-transform lg:static lg:w-60 lg:max-w-none lg:translate-x-0 ${
           isOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         <div className="flex h-full flex-col">
-          <div className="flex items-center justify-between px-4 py-4 lg:px-6 lg:py-6">
+          <div className="flex items-center justify-between border-b border-slate-700/60 px-4 py-4 lg:px-5 lg:py-5">
             <div className="flex items-center gap-3">
-              <Logo />
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-berry-700 text-white shadow-glow-sm">
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
               <div>
-                <div className="font-display text-base font-semibold text-cocoa-900 sm:text-lg">RuxshonaERP</div>
-                <div className="text-xs text-cocoa-600">{t("Tort do'koni")}</div>
+                <div className="text-sm font-bold text-white">RuxshonaERP</div>
+                <div className="text-[11px] text-slate-400">{t("Tort do'koni")}</div>
               </div>
             </div>
             <button
               type="button"
               onClick={() => setIsOpen(false)}
-              className="rounded-xl border border-cream-200 p-2 text-cocoa-500 lg:hidden"
+              className="rounded-lg border border-slate-700/60 p-1.5 text-slate-400 hover:text-slate-200 lg:hidden"
             >
-              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" />
               </svg>
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-4 pb-6 lg:px-6">
-            <div className="flex flex-col gap-3">
+          <div className="flex-1 overflow-y-auto px-3 pb-6 pt-3 lg:px-4">
+            <div className="flex flex-col gap-2">
               {groups.map((group) => {
                 const active = groupIsActive.get(group.key) ?? false;
                 const open = openGroups[group.key] ?? active;
 
                 return (
-                  <div key={group.key} className="flex flex-col gap-2">
+                  <div key={group.key} className="flex flex-col gap-1">
                     <button
                       type="button"
-                      onClick={() => setOpenGroups((prev) => ({ ...prev, [group.key]: !open }))}
+                      onClick={() => {
+                        if (group.key === "logistics") {
+                          router.push("/logistics/cashier");
+                          return;
+                        }
+                        setOpenGroups((prev) => ({ ...prev, [group.key]: !open }));
+                      }}
                       className={groupClass(active)}
                       aria-expanded={open}
                     >
-                      <Icon name={group.icon} className={active ? "opacity-100" : "opacity-70"} />
+                      <Icon name={group.icon} className={active ? "opacity-100" : "opacity-60"} />
                       <span className="min-w-0 flex-1 truncate text-left">{group.label}</span>
                       {group.key === "orders" && websiteIncomingCount > 0 ? (
-                        <span className="rounded-full bg-cream-50 px-2 py-0.5 text-[11px] font-bold text-berry-700">
+                        <span className="rounded-full bg-berry-700 px-2 py-0.5 text-[11px] font-bold text-white">
                           {websiteIncomingCount}
                         </span>
                       ) : null}
-                      <Chevron open={open} active={active} />
+                      <Chevron open={open} inverted={active} />
                     </button>
 
-                    {open && (
-                      <div className="ml-2 flex flex-col gap-1 motion-safe:animate-fade-up">
-                        {group.items.map((item) => {
-                          const activeItem = isItemActive(pathname, searchParams, item.href);
-                          return (
-                            <Link key={item.href} href={item.href} prefetch={false} className={itemClass(activeItem)}>
-                              <Icon name={item.icon} className={activeItem ? "opacity-100" : "opacity-70"} />
-                              <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                              {item.href === "/orders/receive" && websiteIncomingCount > 0 ? (
-                                <span className="rounded-full bg-cream-50 px-2 py-0.5 text-[11px] font-bold text-berry-700">
-                                  {websiteIncomingCount}
-                                </span>
-                              ) : null}
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    )}
+                    {open ? renderEntries(group.items, group.key) : null}
                   </div>
                 );
               })}

@@ -1,5 +1,5 @@
 export type ProductType = "PRODUCT" | "INGREDIENT" | "DECOR" | "UTILITY";
-export type UserRole = "ADMIN" | "SALES" | "PRODUCTION";
+export type UserRole = "ADMIN" | "SALES" | "MANAGER" | "PRODUCTION";
 export type StockMovementType = "IN" | "OUT";
 export type TransferStatus = "PENDING" | "RECEIVED" | "CANCELED";
 export type TransferTargetType = "BRANCH" | "SHOP";
@@ -217,6 +217,7 @@ export type Expense = {
   amount: number;
   paymentMethod: PaymentMethod;
   note?: string;
+  batchId?: string | null;
   productId?: string | null;
   quantity?: number | null;
   expenseItemId?: string | null;
@@ -230,6 +231,7 @@ export type ExpenseItem = {
   name: string;
   categoryId: string;
   productId?: string | null;
+  costPrice?: number | null;
   product?: { id?: string; name?: string; salePrice?: number };
   createdAt: string;
   updatedAt: string;
@@ -333,6 +335,7 @@ export type TransferItem = {
   id: string;
   productId: string;
   quantity: number;
+  unitPrice?: number | null;
   product?: Product;
 };
 
@@ -357,6 +360,7 @@ export type ReturnItem = {
   id: string;
   productId: string;
   quantity: number;
+  unitPrice?: number | null;
   product?: Product;
 };
 
@@ -385,8 +389,45 @@ export type Shift = {
   branchId: string;
   openedById: string;
   closedAt?: string | null;
+  closingAmount?: number | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ShiftWithMeta = Shift & {
+  branch: { id: string; name: string };
+  openedBy: { id: string; username: string };
+};
+
+export type ShiftReportGroupItem = {
+  saleId: string;
+  productId: string;
+  name: string;
+  barcode: string;
+  quantity: number;
+  price: number;
+};
+
+export type ShiftReportGroup = {
+  id: string;
+  paymentMethod: PaymentMethod;
+  createdAt: string;
+  total: number;
+  items: ShiftReportGroupItem[];
+};
+
+export type ShiftPaymentMethodStat = {
+  method: PaymentMethod;
+  count: number;
+  total: number;
+};
+
+export type ShiftReport = {
+  shift: ShiftWithMeta;
+  totalAmount: number;
+  totalGroups: number;
+  byPaymentMethod: ShiftPaymentMethodStat[];
+  groups: ShiftReportGroup[];
 };
 
 export type Sale = {
@@ -395,12 +436,191 @@ export type Sale = {
   quantity: number;
   paymentMethod: PaymentMethod;
   price: number;
+  saleGroupId?: string | null;
   branchId: string;
   productId: string;
+  cashbackTransactionId?: string | null;
+  cashbackRedeemTransactionId?: string | null;
   product?: Product;
   createdById: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type SaleHistoryGroupItem = {
+  saleId: string;
+  barcode: string;
+  productId: string;
+  name: string;
+  price: number;
+  quantity: number;
+  editableStock: number;
+};
+
+export type SaleHistoryGroup = {
+  id: string;
+  saleGroupId?: string | null;
+  branchId: string;
+  date: string;
+  paymentMethod: PaymentMethod;
+  createdAt: string;
+  updatedAt: string;
+  createdById: string;
+  total: number;
+  totalQuantity: number;
+  cashbackLocked: boolean;
+  items: SaleHistoryGroupItem[];
+};
+
+export type TelegramCashbackUser = {
+  id: string;
+  telegramId: string;
+  username?: string | null;
+  firstName: string;
+  lastName?: string | null;
+  barcode: string;
+  balance: number;
+  verifiedMember: boolean;
+};
+
+export type CashbackTransactionType = "EARN" | "REDEEM" | "ADJUSTMENT";
+
+export type TelegramCashbackUserListItem = TelegramCashbackUser & {
+  lastMembershipStatus?: string | null;
+  lastMembershipCheckAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  transactionCount: number;
+  totalEarned: number;
+  totalRedeemed: number;
+  lastTransaction?: {
+    type: CashbackTransactionType;
+    amount: number;
+    createdAt: string;
+  } | null;
+};
+
+export type TelegramCashbackUserListResponse = {
+  items: TelegramCashbackUserListItem[];
+  meta: {
+    total: number;
+    returned: number;
+    limit: number;
+    hasMore: boolean;
+  };
+};
+
+export type CashbackAwardResult = {
+  ok: true;
+  amount: number;
+  balance: number;
+  ratePercent: number;
+  saleAmount: number;
+  transactionId: string;
+  user: {
+    firstName: string;
+    lastName?: string | null;
+    username?: string | null;
+    barcode: string;
+  };
+};
+
+export type CashbackSettleResult = {
+  ok: true;
+  redeemedAmount: number;
+  earnedAmount: number;
+  balance: number;
+  ratePercent: number;
+  saleAmount: number;
+  eligibleAmount: number;
+  redeemTransactionId?: string | null;
+  earnTransactionId?: string | null;
+  user: {
+    firstName: string;
+    lastName?: string | null;
+    username?: string | null;
+    barcode: string;
+  };
+};
+
+export type TelegramTargetType = "GROUP" | "CHANNEL";
+export type TelegramTargetSegment = "GENERAL" | "ADVERTISEMENT" | "DISCOUNT" | "OTHER";
+export type TelegramCampaignStatus =
+  | "DRAFT"
+  | "QUEUED"
+  | "PROCESSING"
+  | "COMPLETED"
+  | "PARTIAL"
+  | "FAILED"
+  | "CANCELED";
+export type TelegramCampaignCategory = "ANNOUNCEMENT" | "ADVERTISEMENT" | "DISCOUNT" | "OTHER";
+export type TelegramDeliveryStatus = "PENDING" | "SENT" | "RETRY" | "FAILED" | "DELETED";
+
+export type TelegramBroadcastTarget = {
+  id: string;
+  name: string;
+  chatId: string;
+  type: TelegramTargetType;
+  segment: TelegramTargetSegment;
+  active: boolean;
+  note?: string | null;
+  createdById?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TelegramBroadcastDelivery = {
+  id: string;
+  campaignId: string;
+  targetId: string;
+  status: TelegramDeliveryStatus;
+  attemptCount: number;
+  nextAttemptAt?: string | null;
+  sentAt?: string | null;
+  deletedAt?: string | null;
+  telegramMessageId?: string | null;
+  lastError?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  target: {
+    id: string;
+    name: string;
+    chatId: string;
+    type: TelegramTargetType;
+    active: boolean;
+  };
+};
+
+export type TelegramBroadcastCampaign = {
+  id: string;
+  title?: string | null;
+  content: string;
+  category: TelegramCampaignCategory;
+  buttonText?: string | null;
+  buttonUrl?: string | null;
+  parseMode?: string | null;
+  status: TelegramCampaignStatus;
+  scheduledAt?: string | null;
+  queuedAt?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  errorMessage?: string | null;
+  createdById?: string | null;
+  updatedById?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: {
+    id: string;
+    username: string;
+    role: UserRole;
+  } | null;
+  deliveries: TelegramBroadcastDelivery[];
+  stats: {
+    pending: number;
+    sent: number;
+    failed: number;
+    deleted: number;
+  };
 };
 
 export type OrderStatus = "NEW" | "IN_DELIVERY" | "DELIVERED" | "CANCELED";

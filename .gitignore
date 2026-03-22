@@ -31,7 +31,7 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
-.env*
+# .env.local
 
 # vercel
 .vercel
@@ -39,3 +39,29 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# desktop build outputs (large binaries)
+/dist-electron/
+/dist-electron-fix/
+/dist-electron-run2/
+/releases/
+/src-tauri/target/
+*.exe
+*.sig
+rustup-init.exe
+
+# local dev files
+*.log
+build.log
+env-config.txt
+fayltuzilma
+rejalar
+.codex-*.log
+.codex-*.ps1
+dist-electron/
+dist-electron-fix/
+dist-electron-run2/
+releases/*.exe
+releases/*.sig
+*.asar
+*.asar.unpacked

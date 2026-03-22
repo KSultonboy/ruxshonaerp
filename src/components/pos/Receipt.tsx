@@ -22,6 +22,11 @@ interface ReceiptProps {
     price?: number;
     paymentMethod?: string;
     branchName?: string;
+    subtotal?: number;
+    cashbackUsed?: number;
+    cashbackEarned?: number;
+    finalPaid?: number;
+    cashbackBalance?: number;
     fromBranch?: string;
     toBranch?: string;
     sourceLabel?: string;
@@ -54,7 +59,7 @@ const FIXED_RECEIPT_DESIGN: Record<ReceiptType, ReceiptDesign> = {
     footerLine: "Qayta kelishingizni kutamiz",
   },
   TRANSFER: {
-    paperWidthMm: 80,
+    paperWidthMm: 72,
     baseFontPx: 11,
     titleFontPx: 16,
     headerFontPx: 10,
@@ -64,7 +69,7 @@ const FIXED_RECEIPT_DESIGN: Record<ReceiptType, ReceiptDesign> = {
     footerLine: "Qabul qiluvchi imzosi: __________",
   },
   RETURN: {
-    paperWidthMm: 80,
+    paperWidthMm: 72,
     baseFontPx: 11,
     titleFontPx: 16,
     headerFontPx: 10,
@@ -104,8 +109,13 @@ export default function Receipt({ type, data }: ReceiptProps) {
     }, 0);
 
     const totalQty = lineItems.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
-    return { total, totalQty };
-  }, [lineItems]);
+    const subtotal = Number(data.subtotal ?? total) || 0;
+    const cashbackUsed = Number(data.cashbackUsed ?? 0) || 0;
+    const cashbackEarned = Number(data.cashbackEarned ?? 0) || 0;
+    const finalPaid = Number(data.finalPaid ?? Math.max(0, subtotal - cashbackUsed)) || 0;
+    const cashbackBalance = Number(data.cashbackBalance ?? 0) || 0;
+    return { total, totalQty, subtotal, cashbackUsed, cashbackEarned, finalPaid, cashbackBalance };
+  }, [data.cashbackBalance, data.cashbackEarned, data.cashbackUsed, data.finalPaid, data.subtotal, lineItems]);
 
   const title = useMemo(() => {
     switch (type) {
@@ -119,19 +129,22 @@ export default function Receipt({ type, data }: ReceiptProps) {
   }, [t, type]);
 
   const widthMm = design.paperWidthMm;
+  const receiptPadding = "2.2mm 3.2mm 2.4mm 2.2mm";
   const receiptDate = formatReceiptDate(data.date);
   const receiptIdSuffix = data.id.slice(-8);
   const paymentLabel = paymentMethodLabel(data.paymentMethod, t);
-  const hasPriceColumns = lineItems.some((item) => Number(item.price || 0) > 0) && type === "SALE";
+  const hasPriceColumns = lineItems.some((item) => Number(item.price || 0) > 0) && (type === "SALE" || type === "TRANSFER");
   const sourceLabel = data.sourceLabel || t("Filial");
   const sourceName = data.sourceName || data.branchName || t("Markaziy");
 
   return (
     <div
-      className="receipt-print mx-auto bg-white p-2 font-mono leading-tight text-black print:w-full print:p-0"
+      className="receipt-print mx-auto bg-white font-mono leading-tight text-black print:w-full"
       style={{
         width: `${widthMm}mm`,
         fontSize: `${design.baseFontPx}px`,
+        padding: receiptPadding,
+        boxSizing: "border-box",
       }}
     >
       <div className="text-center">
@@ -147,27 +160,27 @@ export default function Receipt({ type, data }: ReceiptProps) {
       <div className="mt-2 border-y border-black py-1" style={{ fontSize: `${design.headerFontPx}px` }}>
         <div className="flex items-center justify-between gap-2">
           <span>{t("Sana")}:</span>
-          <span className="font-semibold">{receiptDate}</span>
+          <span className="shrink-0 pl-2 text-right font-semibold">{receiptDate}</span>
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2">
           <span>ID:</span>
-          <span className="font-semibold">{receiptIdSuffix}</span>
+          <span className="shrink-0 pl-2 text-right font-semibold">{receiptIdSuffix}</span>
         </div>
         {type === "TRANSFER" ? (
           <>
             <div className="mt-0.5 flex items-center justify-between gap-2">
               <span>{t("Kimdan")}:</span>
-              <span className="font-semibold">{data.fromBranch || "-"}</span>
+              <span className="shrink-0 pl-2 text-right font-semibold">{data.fromBranch || "-"}</span>
             </div>
             <div className="mt-0.5 flex items-center justify-between gap-2">
               <span>{t("Kimga")}:</span>
-              <span className="font-semibold">{data.toBranch || "-"}</span>
+              <span className="shrink-0 pl-2 text-right font-semibold">{data.toBranch || "-"}</span>
             </div>
           </>
         ) : (
           <div className="mt-0.5 flex items-center justify-between gap-2">
             <span>{sourceLabel}:</span>
-            <span className="font-semibold">{sourceName}</span>
+            <span className="shrink-0 pl-2 text-right font-semibold">{sourceName}</span>
           </div>
         )}
       </div>
@@ -175,7 +188,7 @@ export default function Receipt({ type, data }: ReceiptProps) {
       <div className="mt-2 border-b border-black pb-1 font-bold uppercase" style={{ fontSize: `${design.headerFontPx}px` }}>
         <div className="flex items-center justify-between">
           <span>{t("Mahsulot")}</span>
-          <span>{type === "SALE" ? t("Jami") : t("Soni")}</span>
+          <span>{hasPriceColumns ? t("Jami") : t("Soni")}</span>
         </div>
       </div>
 
@@ -188,7 +201,7 @@ export default function Receipt({ type, data }: ReceiptProps) {
           return (
             <div key={`${item.name}-${index}`} className="border-b border-dotted border-black/40 pb-1">
               <div className="font-semibold">{item.name}</div>
-              {type !== "SALE" || !hasPriceColumns ? (
+              {!hasPriceColumns ? (
                 <div className="mt-0.5 flex items-center justify-end text-[10px] font-bold">{qty}</div>
               ) : (
                 <div className="mt-0.5 flex items-center justify-between gap-2 text-[10px]">
@@ -196,7 +209,9 @@ export default function Receipt({ type, data }: ReceiptProps) {
                     {qty}
                     {hasPrice ? ` x ${formatDigitsWithSpaces(String(unitPrice))}` : ""}
                   </span>
-                  <span className="font-bold">{formatDigitsWithSpaces(String(lineTotal))}</span>
+                  <span className="min-w-[18mm] shrink-0 pl-2 text-right font-bold">
+                    {hasPrice ? formatDigitsWithSpaces(String(lineTotal)) : String(qty)}
+                  </span>
                 </div>
               )}
             </div>
@@ -208,23 +223,63 @@ export default function Receipt({ type, data }: ReceiptProps) {
         <div className="mt-2 border-t border-black pt-1">
           <div className="flex items-center justify-between text-[13px] font-bold">
             <span>{t("Jami")}:</span>
-            <span>{formatDigitsWithSpaces(String(receiptMeta.total))} so'm</span>
+            <span className="shrink-0 pl-2 text-right">{formatDigitsWithSpaces(String(receiptMeta.subtotal))} so'm</span>
           </div>
+          {receiptMeta.cashbackUsed > 0 ? (
+            <div className="mt-0.5 flex items-center justify-between text-[10px]">
+              <span>{t("Cashback ishlatildi")}:</span>
+              <span className="shrink-0 pl-2 text-right font-semibold">
+                -{formatDigitsWithSpaces(String(receiptMeta.cashbackUsed))} so'm
+              </span>
+            </div>
+          ) : null}
+          {receiptMeta.cashbackEarned > 0 ? (
+            <div className="mt-0.5 flex items-center justify-between text-[10px]">
+              <span>{t("Yozilgan cashback")}:</span>
+              <span className="shrink-0 pl-2 text-right font-semibold">
+                +{formatDigitsWithSpaces(String(receiptMeta.cashbackEarned))} so'm
+              </span>
+            </div>
+          ) : null}
+          {receiptMeta.cashbackUsed > 0 ? (
+            <div className="mt-0.5 flex items-center justify-between text-[11px] font-bold">
+              <span>{t("To'lanadi")}:</span>
+              <span className="shrink-0 pl-2 text-right">
+                {formatDigitsWithSpaces(String(receiptMeta.finalPaid))} so'm
+              </span>
+            </div>
+          ) : null}
+          {receiptMeta.cashbackEarned > 0 || receiptMeta.cashbackUsed > 0 ? (
+            <div className="mt-0.5 flex items-center justify-between text-[10px]">
+              <span>{t("Yangi balans")}:</span>
+              <span className="shrink-0 pl-2 text-right font-semibold">
+                {formatDigitsWithSpaces(String(receiptMeta.cashbackBalance))} so'm
+              </span>
+            </div>
+          ) : null}
           <div className="mt-0.5 flex items-center justify-between text-[10px]">
             <span>{t("To'lov turi")}:</span>
-            <span className="font-semibold">{paymentLabel}</span>
+            <span className="shrink-0 pl-2 text-right font-semibold">{paymentLabel}</span>
           </div>
           <div className="mt-0.5 flex items-center justify-between text-[10px]">
             <span>{t("Soni")}:</span>
-            <span className="font-semibold">{receiptMeta.totalQty}</span>
+            <span className="shrink-0 pl-2 text-right font-semibold">{receiptMeta.totalQty}</span>
           </div>
         </div>
       ) : (
         <div className="mt-2 border-t border-black pt-1">
           <div className="flex items-center justify-between text-[12px] font-bold">
             <span>{t("Soni")}:</span>
-            <span>{receiptMeta.totalQty}</span>
+            <span className="shrink-0 pl-2 text-right">{receiptMeta.totalQty}</span>
           </div>
+          {receiptMeta.total > 0 ? (
+            <div className="mt-0.5 flex items-center justify-between text-[13px] font-bold">
+              <span>{t("Jami")}:</span>
+              <span className="shrink-0 pl-2 text-right">
+                {formatDigitsWithSpaces(String(receiptMeta.total))} so'm
+              </span>
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -251,12 +306,15 @@ export default function Receipt({ type, data }: ReceiptProps) {
           }
 
           body[data-receipt-print="1"] .receipt-print {
-            position: fixed;
-            left: 0;
-            top: 0;
+            position: static !important;
+            margin: 0 !important;
+            padding: ${receiptPadding} !important;
+            box-sizing: border-box !important;
             width: ${widthMm}mm !important;
             max-width: ${widthMm}mm !important;
             min-width: ${widthMm}mm !important;
+            page-break-inside: avoid;
+            break-inside: avoid;
           }
 
           @page {
