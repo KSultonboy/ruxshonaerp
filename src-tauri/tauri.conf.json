@@ -1,55 +1,54 @@
 {
-  "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Ruxshona ERP",
-  "version": "0.1.48",
-  "identifier": "com.ruxshona.erp",
-  "build": {
-    "frontendDist": "../out",
-    "devUrl": "http://localhost:3000",
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run clean && npm run build"
-  },
-  "app": {
-    "windows": [
-      {
-        "title": "Ruxshona ERP",
-        "label": "main",
-        "width": 1280,
-        "height": 800,
-        "resizable": true,
-        "fullscreen": false,
-        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --kiosk-printing"
-      }
-    ],
-    "security": {
-      "csp": null
-    }
-  },
-  "bundle": {
-    "active": true,
-    "targets": "nsis",
-    "createUpdaterArtifacts": true,
-    "windows": {
-      "digestAlgorithm": "sha256"
-    },
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ]
-  },
-  "plugins": {
-    "updater": {
-      "endpoints": [
-        "https://api.ruhshonatort.com/desktop-updates/latest.json"
-      ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIwMkNEQzM5MUZCMkYzMTcKUldRWDg3SWZPZHdzc0ErMmE2ZElBYkt1ZklOcWlTRGhYU1k0R3RhT2JSUTlxNGtoQ0xkWXZGU3gK",
-      "windows": {
-        "installMode": "passive"
-      }
-    }
-  }
+    "$schema":  "https://schema.tauri.app/config/2",
+    "productName":  "Ruxshona ERP",
+    "version":  "0.1.49",
+    "identifier":  "com.ruxshona.erp",
+    "build":  {
+                  "frontendDist":  "../out",
+                  "devUrl":  "http://localhost:3000",
+                  "beforeDevCommand":  "npm run dev",
+                  "beforeBuildCommand":  "npm run clean \u0026\u0026 npm run build"
+              },
+    "app":  {
+                "windows":  [
+                                {
+                                    "title":  "Ruxshona ERP",
+                                    "label":  "main",
+                                    "width":  1280,
+                                    "height":  800,
+                                    "resizable":  true,
+                                    "fullscreen":  false,
+                                    "additionalBrowserArgs":  "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --kiosk-printing"
+                                }
+                            ],
+                "security":  {
+                                 "csp":  null
+                             }
+            },
+    "bundle":  {
+                   "active":  true,
+                   "targets":  "nsis",
+                   "createUpdaterArtifacts":  true,
+                   "windows":  {
+                                   "digestAlgorithm":  "sha256"
+                               },
+                   "icon":  [
+                                "icons/32x32.png",
+                                "icons/128x128.png",
+                                "icons/128x128@2x.png",
+                                "icons/icon.icns",
+                                "icons/icon.ico"
+                            ]
+               },
+    "plugins":  {
+                    "updater":  {
+                                    "endpoints":  [
+                                                      "https://api.ruhshonatort.com/desktop-updates/latest.json"
+                                                  ],
+                                    "pubkey":  "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIwMkNEQzM5MUZCMkYzMTcKUldRWDg3SWZPZHdzc0ErMmE2ZElBYkt1ZklOcWlTRGhYU1k0R3RhT2JSUTlxNGtoQ0xkWXZGU3gK",
+                                    "windows":  {
+                                                    "installMode":  "passive"
+                                                }
+                                }
+                }
 }
-
