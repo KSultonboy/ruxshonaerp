@@ -18,6 +18,14 @@ export type ProductCreateDTO = {
 
 export type ProductUpdateDTO = Partial<ProductCreateDTO>;
 
+export type ProductFormalUpdateDTO = {
+  formalName?: string;
+  formalDescription?: string;
+  formalImage?: string;
+  publishToWebsite?: boolean;
+  publishToMobile?: boolean;
+};
+
 export type ExpenseCreateDTO = {
   id?: string; // restore uchun
   date: string; // YYYY-MM-DD
@@ -52,8 +60,10 @@ export type UnitCreateDTO = { name: string; short: string };
 // --- Service interfaces (UI shular bilan ishlaydi) ---
 export interface IProductsService {
   list(): Promise<Product[]>;
+  listFormal(): Promise<Product[]>;
   create(dto: ProductCreateDTO): Promise<Product>;
   update(id: string, dto: ProductUpdateDTO): Promise<void>;
+  updateFormal(id: string, dto: ProductFormalUpdateDTO): Promise<void>;
   remove(id: string): Promise<void>;
   uploadImages(id: string, files: File[]): Promise<string[]>;
 }

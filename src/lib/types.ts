@@ -66,6 +66,11 @@ export type Product = {
   salePrice?: number;
   shopPrice?: number;
   images?: string[];
+  formalName?: string | null;
+  formalDescription?: string | null;
+  formalImage?: string | null;
+  publishToWebsite?: boolean;
+  publishToMobile?: boolean;
   active: boolean;
   stock: number;
   minStock: number;

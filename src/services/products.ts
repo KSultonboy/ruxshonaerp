@@ -4,7 +4,12 @@ import { getJSON, setJSON, safeId } from "@/lib/storage";
 import { STORAGE_KEYS } from "@/lib/seed";
 import { SERVICE_MODE } from "./config";
 import { apiFetch } from "./http";
-import type { IProductsService, ProductCreateDTO, ProductUpdateDTO } from "./contracts";
+import type {
+  IProductsService,
+  ProductCreateDTO,
+  ProductFormalUpdateDTO,
+  ProductUpdateDTO,
+} from "./contracts";
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -87,6 +92,10 @@ const local: IProductsService = {
     return next;
   },
 
+  async listFormal() {
+    return this.list();
+  },
+
   async create(input: ProductCreateDTO) {
     const items = getJSON<Product[]>(STORAGE_KEYS.products, []);
     const now = new Date().toISOString();
@@ -150,6 +159,28 @@ const local: IProductsService = {
     setJSON(STORAGE_KEYS.products, next);
   },
 
+  async updateFormal(id: string, patch: ProductFormalUpdateDTO) {
+    const items = getJSON<Product[]>(STORAGE_KEYS.products, []);
+    const next = items.map((p) => {
+      if (p.id !== id) return p;
+      return {
+        ...p,
+        formalName: patch.formalName !== undefined ? (patch.formalName?.trim() || null) : p.formalName ?? null,
+        formalDescription:
+          patch.formalDescription !== undefined
+            ? patch.formalDescription?.trim() || null
+            : p.formalDescription ?? null,
+        formalImage: patch.formalImage !== undefined ? patch.formalImage?.trim() || null : p.formalImage ?? null,
+        publishToWebsite:
+          patch.publishToWebsite !== undefined ? patch.publishToWebsite : (p.publishToWebsite ?? false),
+        publishToMobile:
+          patch.publishToMobile !== undefined ? patch.publishToMobile : (p.publishToMobile ?? false),
+        updatedAt: new Date().toISOString(),
+      };
+    });
+    setJSON(STORAGE_KEYS.products, next);
+  },
+
   async remove(id: string) {
     const items = getJSON<Product[]>(STORAGE_KEYS.products, []).filter((p) => p.id !== id);
     setJSON(STORAGE_KEYS.products, items);
@@ -173,6 +204,10 @@ const api: IProductsService = {
     return apiFetch<Product[]>("/products");
   },
 
+  async listFormal() {
+    return apiFetch<Product[]>("/products/formal");
+  },
+
   async create(dto) {
     const { id, images, ...safe } = dto as any;
     return apiFetch<Product>("/products", { method: "POST", body: JSON.stringify(safe) });
@@ -180,6 +215,10 @@ const api: IProductsService = {
 
   async update(id, dto) {
     await apiFetch<void>(`/products/${id}`, { method: "PATCH", body: JSON.stringify(dto) });
+  },
+
+  async updateFormal(id, dto) {
+    await apiFetch<void>(`/products/${id}/formal`, { method: "PATCH", body: JSON.stringify(dto) });
   },
 
   async remove(id) {

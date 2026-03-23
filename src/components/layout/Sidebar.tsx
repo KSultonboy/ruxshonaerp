@@ -322,6 +322,7 @@ function getGroupsForRole(
       icon: "products",
       items: [
         { href: "/products", label: t("Mahsulotlar"), icon: "products" },
+        { href: "/products/formal", label: t("Formal nomlar"), icon: "platform" },
         { href: "/products?new=1", label: t("Mahsulot qo'shish"), icon: "add" },
         { href: "/products/categories", label: t("Kategoriyalar"), icon: "categories" },
         { href: "/products/units", label: t("Birliklar"), icon: "units" },
