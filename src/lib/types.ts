@@ -655,6 +655,11 @@ export type Order = {
   total: number;
   note?: string;
   items?: OrderItem[];
+  deliveryUserId?: string | null;
+  deliveryUser?: { id: string; name: string; username: string } | null;
+  deliveryNote?: string | null;
+  deliveredAt?: string | null;
+  scheduledAt?: string | null;
   createdAt: string;
   updatedAt: string;
 };
