@@ -15,6 +15,20 @@ export default function OpenShiftPage() {
 
   const [loading, setLoading] = useState(true);
 
+  function normalizeShiftOpenError(error: unknown) {
+    const message = String((error as any)?.message || "");
+    const lower = message.toLowerCase();
+    if (
+      lower.includes("failed to fetch") ||
+      lower.includes("networkerror") ||
+      lower.includes("api timeout") ||
+      lower.includes("load failed")
+    ) {
+      return t("Server bilan aloqa uzildi. Internetni tekshirib qayta urinib ko'ring");
+    }
+    return message || t("Smena ochib bo'lmadi");
+  }
+
   async function openAndGo() {
     setLoading(true);
     try {
@@ -27,7 +41,7 @@ export default function OpenShiftPage() {
       router.replace("/sales/sell");
     } catch (e: any) {
       setLoading(false);
-      toast.error(t("Xatolik"), e?.message || t("Smena ochib bo'lmadi"));
+      toast.error(t("Xatolik"), normalizeShiftOpenError(e));
     }
   }
 

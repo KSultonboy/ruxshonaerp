@@ -32,6 +32,10 @@ type SaleGroupUpdateDTO = {
   date: string;
 };
 
+const SHIFT_FETCH_TIMEOUT_MS = 8000;
+const SHIFT_OPEN_TIMEOUT_MS = 10000;
+const SHIFT_RETRY_DELAYS_MS = [0, 700, 1500] as const;
+
 export type UploadedShiftPhoto = Shift & {
   branch?: { id: string; name: string } | null;
   openedBy?: { id: string; username: string } | null;
@@ -63,6 +67,41 @@ function normalizeBarcode(barcode: string) {
 
 function normalizeSaleGroupId(sale: Sale) {
   return String(sale.saleGroupId || sale.id);
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableNetworkError(error: unknown) {
+  const message = String((error as any)?.message || "").toLowerCase();
+  return (
+    message.includes("failed to fetch") ||
+    message.includes("networkerror") ||
+    message.includes("load failed") ||
+    message.includes("api timeout") ||
+    message.startsWith("api 502") ||
+    message.startsWith("api 503") ||
+    message.startsWith("api 504")
+  );
+}
+
+async function runWithRetry<T>(task: () => Promise<T>, delays = SHIFT_RETRY_DELAYS_MS): Promise<T> {
+  let lastError: unknown;
+  for (let i = 0; i < delays.length; i += 1) {
+    if (i > 0 && delays[i] > 0) {
+      await wait(delays[i]);
+    }
+    try {
+      return await task();
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableNetworkError(error) || i === delays.length - 1) {
+        throw error;
+      }
+    }
+  }
+  throw lastError ?? new Error("Unknown network error");
 }
 
 function groupSalesForHistory(sales: Sale[], limit = 5): SaleHistoryGroup[] {
@@ -569,10 +608,17 @@ const local = {
 
 const api = {
   async getShift(): Promise<Shift | null> {
-    return apiFetch<Shift | null>("/sales/shift");
+    return runWithRetry(() =>
+      apiFetch<Shift | null>("/sales/shift", { timeoutMs: SHIFT_FETCH_TIMEOUT_MS })
+    );
   },
   async openShift(): Promise<Shift> {
-    return apiFetch<Shift>("/sales/shift/open", { method: "POST" });
+    return runWithRetry(() =>
+      apiFetch<Shift>("/sales/shift/open", {
+        method: "POST",
+        timeoutMs: SHIFT_OPEN_TIMEOUT_MS,
+      })
+    );
   },
   async closeShift(closingAmount?: number): Promise<Shift> {
     return apiFetch<Shift>("/sales/shift/close", { method: "POST", body: JSON.stringify({ closingAmount }) });

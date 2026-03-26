@@ -5,6 +5,7 @@ import { refresh as refreshRequest } from "./auth";
 
 export type FetchOptions = RequestInit & {
   skipAuth?: boolean;
+  timeoutMs?: number;
 };
 
 let refreshPromise: Promise<StoredAuth | null> | null = null;
@@ -63,7 +64,7 @@ async function refreshTokens(): Promise<StoredAuth | null> {
 }
 
 export async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T> {
-  const { skipAuth = false, ...fetchOptions } = options;
+  const { skipAuth = false, timeoutMs, ...fetchOptions } = options;
 
   const auth = getStoredAuth();
   const headers = normalizeHeaders(fetchOptions.headers);
@@ -84,10 +85,31 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
   const url = `${API_BASE_URL}${path}`;
 
   const doFetch = async (overrideHeaders?: Record<string, string>) => {
-    const res = await fetch(url, {
-      ...fetchOptions,
-      headers: overrideHeaders ?? headers,
-    });
+    const controller =
+      typeof AbortController !== "undefined" && timeoutMs && timeoutMs > 0
+        ? new AbortController()
+        : null;
+
+    const timer =
+      controller && timeoutMs
+        ? setTimeout(() => controller.abort(), timeoutMs)
+        : null;
+
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        ...fetchOptions,
+        headers: overrideHeaders ?? headers,
+        signal: controller ? controller.signal : fetchOptions.signal,
+      });
+    } catch (error: any) {
+      if (controller?.signal.aborted) {
+        throw new Error(`API timeout after ${timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
 
     // 204: no content
     if (res.status === 204) return undefined as T;
