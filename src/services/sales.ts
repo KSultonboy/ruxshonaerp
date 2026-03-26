@@ -32,9 +32,9 @@ type SaleGroupUpdateDTO = {
   date: string;
 };
 
-const SHIFT_FETCH_TIMEOUT_MS = 8000;
-const SHIFT_OPEN_TIMEOUT_MS = 10000;
-const SHIFT_RETRY_DELAYS_MS = [0, 700, 1500] as const;
+const SHIFT_FETCH_TIMEOUT_MS = 4500;
+const SHIFT_OPEN_TIMEOUT_MS = 6000;
+const SHIFT_RETRY_DELAYS_MS = [0, 500] as const;
 
 export type UploadedShiftPhoto = Shift & {
   branch?: { id: string; name: string } | null;

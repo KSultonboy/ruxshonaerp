@@ -4,21 +4,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { salesService } from "@/services/sales";
-import { useI18n } from "@/components/i18n/I18nProvider";
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs = 8000): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = window.setTimeout(() => reject(new Error("SHIFT_TIMEOUT")), timeoutMs);
-    promise
-      .then(resolve)
-      .catch(reject)
-      .finally(() => window.clearTimeout(timer));
-  });
-}
 
 export default function SalesLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading, logout } = useAuth();
-  const { t } = useI18n();
+  const { user, loading } = useAuth();
   const router = useRouter();
   const [checkedOnce, setCheckedOnce] = useState(false);
 
@@ -43,7 +31,7 @@ export default function SalesLayout({ children }: { children: React.ReactNode })
       return;
     }
 
-    withTimeout(salesService.getShift())
+    salesService.getShift()
       .then((shift) => {
         if (!active) return;
         if (!shift || shift.status !== "OPEN") {
@@ -54,15 +42,17 @@ export default function SalesLayout({ children }: { children: React.ReactNode })
         if (active) setCheckedOnce(true);
       })
       .catch(() => {
-        if (active) setCheckedOnce(true);
+        if (!active) return;
+        router.replace("/sales/open-shift");
+        setCheckedOnce(true);
       });
 
     return () => {
       active = false;
     };
-  }, [loading, logout, router, user]);
+  }, [loading, router, user]);
   
-  if (!checkedOnce && loading) {
+  if (!checkedOnce) {
     return null;
   }
 

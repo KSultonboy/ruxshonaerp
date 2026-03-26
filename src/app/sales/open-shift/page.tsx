@@ -32,14 +32,14 @@ export default function OpenShiftPage() {
   async function openAndGo() {
     setLoading(true);
     try {
-      const openShift = await salesService.getShift().catch(() => null);
-      if (openShift && openShift.status === "OPEN") {
-        router.replace("/sales/sell");
-        return;
-      }
       await salesService.openShift();
       router.replace("/sales/sell");
     } catch (e: any) {
+      const currentShift = await salesService.getShift().catch(() => null);
+      if (currentShift?.status === "OPEN") {
+        router.replace("/sales/sell");
+        return;
+      }
       setLoading(false);
       toast.error(t("Xatolik"), normalizeShiftOpenError(e));
     }
