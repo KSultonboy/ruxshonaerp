@@ -366,7 +366,7 @@ function getGroupsForRole(
           label: t("Website"),
           icon: "website",
           items: [
-            { href: "/platforms/website/orders", label: t("Buyurtmalar"), icon: "orders" },
+            { href: "/orders", label: t("Buyurtmalar"), icon: "orders" },
             { href: "/platforms/website/dashboard", label: t("Analitika"), icon: "report" },
             { href: "/platforms/website/customers", label: t("Mijozlar"), icon: "users" },
             { href: "/platforms/website/custom-requests", label: t("Maxsus so'rovlar"), icon: "add" },
@@ -380,7 +380,7 @@ function getGroupsForRole(
           label: t("Telegram bot"),
           icon: "telegram",
           items: [
-            { href: "/platforms/telegram/orders", label: t("Buyurtmalar"), icon: "orders" },
+            { href: "/orders", label: t("Buyurtmalar"), icon: "orders" },
             { href: "/platforms/telegram/dashboard", label: t("Analitika"), icon: "report" },
             { href: "/platforms/telegram/users", label: t("Cashback userlar"), icon: "users" },
             { href: "/platforms/telegram/broadcast", label: t("Broadcast"), icon: "telegram" },
@@ -393,7 +393,7 @@ function getGroupsForRole(
           label: t("Mobile app"),
           icon: "mobile",
           items: [
-            { href: "/platforms/mobile/orders", label: t("Buyurtmalar"), icon: "orders" },
+            { href: "/orders", label: t("Buyurtmalar"), icon: "orders" },
             { href: "/platforms/mobile/dashboard", label: t("Analitika"), icon: "report" },
             { href: "/platforms/mobile", label: t("Sozlamalar"), icon: "settings" },
           ],

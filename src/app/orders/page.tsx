@@ -10,21 +10,37 @@ import { moneyUZS } from "@/lib/format";
 import { ordersService } from "@/services/orders";
 import { apiFetch } from "@/services/http";
 import { SERVICE_MODE } from "@/services/config";
-import type { Order, OrderStatus, User } from "@/lib/types";
+import type { Order, OrderChannel, OrderStatus, User } from "@/lib/types";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const POLL_MS = 30_000;
 
 type FilterTab = "ALL" | OrderStatus;
+type ChannelTab = "ALL" | OrderChannel;
 
-const TABS: { key: FilterTab; label: string }[] = [
+const STATUS_TABS: { key: FilterTab; label: string }[] = [
   { key: "ALL",         label: "Barchasi"    },
   { key: "NEW",         label: "Yangi"       },
   { key: "IN_DELIVERY", label: "Yetkazishda" },
   { key: "DELIVERED",   label: "Yetkazildi"  },
   { key: "CANCELED",    label: "Bekor"       },
 ];
+
+const CHANNEL_TABS: { key: ChannelTab; label: string; icon: string }[] = [
+  { key: "ALL",      label: "Barchasi", icon: "📋" },
+  { key: "WEBSITE",  label: "Website",  icon: "🌐" },
+  { key: "TELEGRAM", label: "Telegram", icon: "✈️" },
+  { key: "PHONE",    label: "Telefon",  icon: "📞" },
+  { key: "OTHER",    label: "Boshqa",   icon: "📦" },
+];
+
+const CHANNEL_ICONS: Record<OrderChannel, string> = {
+  WEBSITE:  "🌐",
+  TELEGRAM: "✈️",
+  PHONE:    "📞",
+  OTHER:    "📦",
+};
 
 const STATUS_LABELS: Record<OrderStatus, string> = {
   NEW:         "Yangi",
@@ -347,6 +363,7 @@ export default function OrdersPage() {
   const [loading,   setLoading]   = useState(true);
   const [busyId,    setBusyId]    = useState<string | null>(null);
   const [tab,       setTab]       = useState<FilterTab>("ALL");
+  const [channel,   setChannel]   = useState<ChannelTab>("ALL");
   const [detail,    setDetail]    = useState<Order | null>(null);
   const [newBanner, setNewBanner] = useState(0);   // count of new arrived orders
   const [notifPerm, setNotifPerm] = useState<NotificationPermission | "unsupported">("default");
@@ -502,10 +519,11 @@ export default function OrdersPage() {
     [orders]
   );
 
-  const filtered = useMemo(
-    () => (tab === "ALL" ? sorted : sorted.filter((o) => o.status === tab)),
-    [sorted, tab]
-  );
+  const filtered = useMemo(() => {
+    let list = tab === "ALL" ? sorted : sorted.filter((o) => o.status === tab);
+    if (channel !== "ALL") list = list.filter((o) => o.channel === channel);
+    return list;
+  }, [sorted, tab, channel]);
 
   const counts = useMemo(
     () => ({
@@ -598,9 +616,40 @@ export default function OrdersPage() {
         </Card>
       </div>
 
-      {/* Filter tabs */}
+      {/* Channel filter tabs */}
       <div className="flex flex-wrap gap-1.5 rounded-2xl border border-cream-200 bg-cream-50 p-1.5">
-        {TABS.map(({ key, label }) => {
+        {CHANNEL_TABS.map(({ key, label, icon }) => {
+          const active = channel === key;
+          const count = key === "ALL"
+            ? orders.length
+            : orders.filter((o) => o.channel === key).length;
+          return (
+            <button
+              key={key}
+              onClick={() => setChannel(key)}
+              className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-all ${
+                active
+                  ? "bg-white text-cocoa-900 shadow-card"
+                  : "text-cocoa-500 hover:text-cocoa-800"
+              }`}
+            >
+              <span>{icon}</span>
+              {label}
+              <span
+                className={`rounded-full px-1.5 py-0.5 text-xs font-bold ${
+                  active ? "bg-berry-100 text-berry-700" : "bg-cream-200 text-cocoa-500"
+                }`}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Status filter tabs */}
+      <div className="flex flex-wrap gap-1.5 rounded-2xl border border-cream-200 bg-cream-50 p-1.5">
+        {STATUS_TABS.map(({ key, label }) => {
           const count = key === "ALL" ? orders.length : counts[key as OrderStatus] ?? 0;
           const active = tab === key;
           return (
@@ -634,6 +683,7 @@ export default function OrdersPage() {
               <tr>
                 <th>ID</th>
                 <th>Mijoz</th>
+                <th>Kanal</th>
                 <th>Manzil</th>
                 <th>Summa</th>
                 <th>Holat</th>
@@ -644,13 +694,13 @@ export default function OrdersPage() {
             <tbody>
               {loading && orders.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-10 text-center text-sm text-cocoa-500">
+                  <td colSpan={8} className="py-10 text-center text-sm text-cocoa-500">
                     Yuklanmoqda...
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-10 text-center text-sm text-cocoa-500">
+                  <td colSpan={8} className="py-10 text-center text-sm text-cocoa-500">
                     Hozircha buyurtma yo'q.
                   </td>
                 </tr>
@@ -676,6 +726,11 @@ export default function OrdersPage() {
                       {order.phone && (
                         <div className="text-xs text-cocoa-500">{order.phone}</div>
                       )}
+                    </td>
+
+                    {/* Kanal */}
+                    <td className="text-center text-lg" title={order.channel}>
+                      {CHANNEL_ICONS[order.channel] ?? "📦"}
                     </td>
 
                     {/* Manzil */}
