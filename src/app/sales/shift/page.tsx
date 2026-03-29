@@ -10,7 +10,15 @@ import { useI18n } from "@/components/i18n/I18nProvider";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { salesService } from "@/services/sales";
 import { moneyUZS } from "@/lib/format";
-import type { Shift, Sale, PaymentMethod, ShiftWithMeta } from "@/lib/types";
+import { onlyDigits, formatDigitsWithSpaces } from "@/lib/mask";
+import type {
+  Shift,
+  Sale,
+  PaymentMethod,
+  ShiftWithMeta,
+  ShiftCashSummary,
+  ShiftCashOutRecipient,
+} from "@/lib/types";
 
 type MethodStat = { method: PaymentMethod; count: number; total: number };
 
@@ -21,6 +29,12 @@ const METHOD_COLOR: Record<PaymentMethod, string> = {
   CASH: "bg-emerald-50 text-emerald-700 border-emerald-200",
   CARD: "bg-blue-50 text-blue-700 border-blue-200",
   TRANSFER: "bg-amber-50 text-amber-700 border-amber-200",
+};
+
+const CASH_OUT_LABEL: Record<ShiftCashOutRecipient, string> = {
+  OWNER: "Xo'jayin",
+  SUPPLIER: "Ta'minotchi",
+  OTHER: "Boshqa",
 };
 
 function computeStats(sales: Sale[]) {
@@ -63,13 +77,16 @@ export default function SalesShiftPage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [showCloseModal, setShowCloseModal] = useState(false);
+  const [cashSummary, setCashSummary] = useState<ShiftCashSummary | null>(null);
+  const [cashOutAmount, setCashOutAmount] = useState("");
+  const [cashOutNote, setCashOutNote] = useState("");
+  const [cashOutRecipient, setCashOutRecipient] = useState<ShiftCashOutRecipient>("OTHER");
+  const [cashOutSaving, setCashOutSaving] = useState(false);
 
-  // Joriy smena statistikasi
   const [totalAmount, setTotalAmount] = useState(0);
   const [totalGroups, setTotalGroups] = useState(0);
   const [byMethod, setByMethod] = useState<MethodStat[]>([]);
 
-  // Kunlik umumiy statistika
   const [dayTotal, setDayTotal] = useState(0);
   const [dayGroups, setDayGroups] = useState(0);
   const [dayByMethod, setDayByMethod] = useState<MethodStat[]>([]);
@@ -84,6 +101,15 @@ export default function SalesShiftPage() {
       setTotalGroups(report.totalGroups);
       setByMethod(report.byPaymentMethod);
     } catch { /* ignore */ }
+  }, []);
+
+  const loadCashSummary = useCallback(async () => {
+    try {
+      const summary = await salesService.getShiftCashSummary();
+      setCashSummary(summary);
+    } catch {
+      setCashSummary(null);
+    }
   }, []);
 
   const loadDayStats = useCallback(async () => {
@@ -105,11 +131,15 @@ export default function SalesShiftPage() {
       ]);
       setShift(s);
       setTodayShifts(Array.isArray(shifts) ? shifts : []);
-      if (s?.status === "OPEN") await loadStats(s);
+      if (s?.status === "OPEN") {
+        await Promise.all([loadStats(s), loadCashSummary()]);
+      } else {
+        setCashSummary(null);
+      }
       await loadDayStats();
     } catch { setShift(null); }
     finally { setLoading(false); }
-  }, [loadStats, loadDayStats, today]);
+  }, [loadCashSummary, loadStats, loadDayStats, today]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -150,6 +180,78 @@ export default function SalesShiftPage() {
     router.replace("/login");
   }
 
+  async function handleAddCashOut() {
+    const amount = Number(onlyDigits(cashOutAmount));
+    if (!amount || amount <= 0) {
+      toast.error(t("Xatolik"), t("Summa 0 dan katta bo'lsin"));
+      return;
+    }
+    setCashOutSaving(true);
+    try {
+      const result = await salesService.addShiftCashOut({
+        amount,
+        recipientType: cashOutRecipient,
+        note: cashOutNote.trim() || undefined,
+      });
+      setCashSummary(result.summary);
+      setCashOutAmount("");
+      setCashOutNote("");
+      toast.success(t("Saqlandi"), t("Kassadan chiqim yozildi"));
+    } catch (e: any) {
+      toast.error(t("Xatolik"), e?.message || t("Saqlab bo'lmadi"));
+    } finally {
+      setCashOutSaving(false);
+    }
+  }
+
+  async function handlePrint() {
+    if (!shift) return;
+    try {
+      const report = await salesService.getShiftReport(shift.id);
+      const { shift: s, totalAmount: total, byPaymentMethod, groups } = report;
+
+      const methodRows = byPaymentMethod.map((m) =>
+        `<tr><td>${METHOD_LABEL[m.method] ?? m.method}</td><td style="text-align:right;font-weight:700">${m.count} ta</td><td style="text-align:right;font-weight:700">${m.total.toLocaleString()} so'm</td></tr>`
+      ).join("");
+
+      const groupRows = groups.map((g) => {
+        const itemLines = g.items.map((item) =>
+          `<tr><td style="padding-left:20px;color:#666">${item.name}</td><td style="text-align:right;color:#666">${item.quantity} × ${item.price.toLocaleString()}</td><td></td></tr>`
+        ).join("");
+        return `<tr style="background:#f5f0ea"><td colspan="2"><b>${new Date(g.createdAt).toLocaleTimeString("uz-UZ", { hour: "2-digit", minute: "2-digit" })} · ${METHOD_LABEL[g.paymentMethod] ?? g.paymentMethod}</b></td><td style="text-align:right;font-weight:700">${g.total.toLocaleString()} so'm</td></tr>${itemLines}`;
+      }).join("");
+
+      const html = `<!doctype html><html><head><meta charset="utf-8"/>
+        <title>Smena Hisoboti — ${s.date}</title>
+        <style>
+          body{font-family:Arial,sans-serif;font-size:12px;margin:16px;color:#1f1a17}
+          h2{margin:0 0 4px}p{margin:2px 0;font-size:11px;color:#5c5048}
+          table{width:100%;border-collapse:collapse;margin-top:10px}
+          th,td{padding:5px 8px;border:1px solid #e5ded7;text-align:left}
+          th{background:#f5f0ea;font-weight:700;font-size:11px}
+          .total{margin-top:14px;padding:10px 14px;background:#1a1a2e;color:#fff;border-radius:8px;font-size:15px;font-weight:700;display:flex;justify-content:space-between}
+          @media print{@page{margin:10mm}}
+        </style></head><body>
+        <h2>Smena Hisoboti</h2>
+        <p>Sana: <b>${s.date}</b> | Filial: <b>${s.branch?.name ?? "—"}</b> | Kassir: <b>${s.openedBy?.username ?? "—"}</b></p>
+        <p>Ochilish: <b>${new Date(s.createdAt).toLocaleTimeString("uz-UZ", { hour: "2-digit", minute: "2-digit" })}</b>
+          ${s.closedAt ? ` | Yopilish: <b>${new Date(s.closedAt).toLocaleTimeString("uz-UZ", { hour: "2-digit", minute: "2-digit" })}</b>` : " | Hali ochiq"}
+        </p>
+        <table><thead><tr><th>To'lov usuli</th><th style="text-align:right">Cheklar</th><th style="text-align:right">Summa</th></tr></thead>
+        <tbody>${methodRows}</tbody></table>
+        <table><thead><tr><th>Chek / Mahsulot</th><th style="text-align:right">Miqdor</th><th style="text-align:right">Summa</th></tr></thead>
+        <tbody>${groupRows}</tbody></table>
+        <div class="total"><span>Jami sotuv:</span><span>${total.toLocaleString()} so'm</span></div>
+        <script>window.onload=()=>{window.print();setTimeout(()=>window.close(),500)}</script>
+        </body></html>`;
+
+      const w = window.open("", "_blank", "width=750,height=950");
+      if (w) { w.document.open(); w.document.write(html); w.document.close(); }
+    } catch (e: any) {
+      toast.error(t("Xatolik"), e?.message);
+    }
+  }
+
   if (loading) {
     return <div className="py-20 text-center text-sm text-slate-400">{t("Yuklanmoqda...")}</div>;
   }
@@ -183,7 +285,7 @@ export default function SalesShiftPage() {
           </div>
         </div>
 
-        {/* Kunlik umumiy — agar 2+ smena bo'lsa yoki yopilgan smenalar bo'lsa */}
+        {/* Kunlik umumiy */}
         {(hasMultipleShiftsToday || (closedShiftsToday.length > 0 && dayTotal > 0)) && (
           <div className="rounded-2xl border-2 border-slate-200 bg-slate-50 px-4 py-4">
             <div className="mb-3 flex items-center gap-2">
@@ -220,7 +322,7 @@ export default function SalesShiftPage() {
           </div>
         )}
 
-        {/* Yopilgan smenalar ro'yxati (bugun) */}
+        {/* Yopilgan smenalar */}
         {closedShiftsToday.length > 0 && (
           <div>
             <h2 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">{t("Bugungi yopilgan smenalar")}</h2>
@@ -251,7 +353,7 @@ export default function SalesShiftPage() {
           </div>
         )}
 
-        {/* Joriy ochiq smena statistikasi */}
+        {/* Joriy smena statistikasi */}
         {isOpen && (
           <>
             {hasMultipleShiftsToday && (
@@ -283,10 +385,117 @@ export default function SalesShiftPage() {
                 ))}
               </div>
             )}
+
+            {/* Kassa holati va chiqim */}
+            <Card>
+              <h3 className="mb-3 text-sm font-semibold text-slate-800">{t("Joriy kassa nazorati")}</h3>
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{t("Boshlang'ich")}</div>
+                  <div className="mt-1 text-lg font-bold text-slate-800">{moneyUZS(cashSummary?.openingAmount ?? 0)}</div>
+                </div>
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-500">{t("Naqd sotuv")}</div>
+                  <div className="mt-1 text-lg font-bold text-emerald-700">{moneyUZS(cashSummary?.cashSalesTotal ?? 0)}</div>
+                </div>
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-rose-500">{t("Kassadan chiqim")}</div>
+                  <div className="mt-1 text-lg font-bold text-rose-700">{moneyUZS(cashSummary?.cashOutTotal ?? 0)}</div>
+                </div>
+                <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-blue-500">{t("Joriy qoldiq")}</div>
+                  <div className={`mt-1 text-lg font-bold ${(cashSummary?.currentCash ?? 0) < 0 ? "text-rose-700" : "text-blue-700"}`}>
+                    {moneyUZS(cashSummary?.currentCash ?? 0)}
+                  </div>
+                </div>
+              </div>
+
+              {cashSummary?.warnings?.includes("NEGATIVE_CASH") && (
+                <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
+                  {t("Diqqat: joriy kassa manfiy holatga tushgan. Chiqimlarni tekshiring.")}
+                </div>
+              )}
+
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">{t("Kimga berildi")}</label>
+                  <select
+                    value={cashOutRecipient}
+                    onChange={(e) => setCashOutRecipient(e.target.value as ShiftCashOutRecipient)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                  >
+                    <option value="OWNER">{t("Xo'jayin")}</option>
+                    <option value="SUPPLIER">{t("Ta'minotchi")}</option>
+                    <option value="OTHER">{t("Boshqa")}</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">{t("Summa (so'm)")}</label>
+                  <input
+                    inputMode="numeric"
+                    value={formatDigitsWithSpaces(cashOutAmount)}
+                    onChange={(e) => setCashOutAmount(onlyDigits(e.target.value))}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                    placeholder={t("Masalan: 250 000")}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">{t("Izoh (ixtiyoriy)")}</label>
+                  <input
+                    value={cashOutNote}
+                    onChange={(e) => setCashOutNote(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+                    placeholder={t("Nima uchun berildi?")}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-3 flex items-center justify-end">
+                <Button onClick={() => void handleAddCashOut()} disabled={cashOutSaving}>
+                  {cashOutSaving ? t("Saqlanmoqda...") : t("Kassadan chiqim qo'shish")}
+                </Button>
+              </div>
+
+              {cashSummary?.cashOuts?.length ? (
+                <div className="mt-4 rounded-xl border border-slate-200">
+                  <div className="border-b border-slate-200 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    {t("So'nggi chiqimlar")}
+                  </div>
+                  <div className="max-h-52 overflow-auto divide-y divide-slate-100">
+                    {cashSummary.cashOuts.slice(0, 20).map((item) => (
+                      <div key={item.id} className="flex items-center justify-between px-4 py-2 text-sm">
+                        <div>
+                          <div className="flex items-center gap-2 font-semibold text-slate-800">
+                            {t(CASH_OUT_LABEL[item.recipientType])}
+                            {(item as any).status === "PENDING" && (
+                              <span className="rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700">
+                                {t("Kutmoqda")}
+                              </span>
+                            )}
+                            {(item as any).status === "REJECTED" && (
+                              <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
+                                {t("Rad etildi")}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            {new Date(item.createdAt).toLocaleString("uz-UZ", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                            {item.note ? ` · ${item.note}` : ""}
+                          </div>
+                        </div>
+                        <div className={`font-semibold ${(item as any).status === "PENDING" ? "text-orange-600" : (item as any).status === "REJECTED" ? "text-slate-400 line-through" : "text-rose-700"}`}>
+                          {moneyUZS(item.amount)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </Card>
           </>
         )}
 
-        {/* Photo upload */}
+        {/* Rasm yuklash */}
         {isOpen && (
           <Card>
             <h3 className="mb-3 text-sm font-semibold text-slate-800">{t("Kassa rasmlari")}</h3>
@@ -307,7 +516,7 @@ export default function SalesShiftPage() {
             {photoCount < 6 && (
               <div>
                 <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => uploadPhotos(e.target.files)} />
-                <Button variant="secondary" onClick={() => fileRef.current?.click()} disabled={uploading} className="flex items-center gap-2">
+                <Button variant="ghost" onClick={() => fileRef.current?.click()} disabled={uploading} className="flex items-center gap-2">
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -321,7 +530,7 @@ export default function SalesShiftPage() {
           </Card>
         )}
 
-        {/* Actions */}
+        {/* Amallar */}
         <Card>
           <div className="flex flex-wrap gap-3">
             {isOpen && (
@@ -329,7 +538,12 @@ export default function SalesShiftPage() {
                 {t("Smena yopish")}
               </Button>
             )}
-            <Button variant="secondary" onClick={refresh}>{t("Yangilash")}</Button>
+            {shift && (
+              <Button variant="ghost" onClick={() => void handlePrint()}>
+                🖨 {t("Hisobotni chop etish")}
+              </Button>
+            )}
+            <Button variant="ghost" onClick={refresh}>{t("Yangilash")}</Button>
           </div>
         </Card>
       </div>

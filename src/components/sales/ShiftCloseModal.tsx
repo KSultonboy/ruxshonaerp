@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { salesService } from "@/services/sales";
 import { moneyUZS } from "@/lib/format";
-import type { Shift, Sale, PaymentMethod } from "@/lib/types";
+import type { Shift, PaymentMethod, ShiftCashSummary } from "@/lib/types";
 
 type MethodStat = { method: PaymentMethod; count: number; total: number };
 
@@ -49,27 +49,33 @@ export default function ShiftCloseModal({ shift, onClose, onShiftClosed }: Props
 
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState<{ total: number; groups: number; byMethod: MethodStat[] }>({ total: 0, groups: 0, byMethod: [] });
+  const [cashSummary, setCashSummary] = useState<ShiftCashSummary | null>(null);
 
   useEffect(() => {
-    salesService.list({ from: shift.date, to: shift.date }).then((sales: Sale[]) => {
-      const groupMap = new Map<string, { method: PaymentMethod; total: number }>();
-      for (const sale of sales) {
-        const gId = String(sale.saleGroupId || sale.id);
-        const line = Number(sale.price) * Number(sale.quantity);
-        const ex = groupMap.get(gId);
-        if (ex) { ex.total += line; } else { groupMap.set(gId, { method: sale.paymentMethod, total: line }); }
-      }
-      const methodMap = new Map<PaymentMethod, MethodStat>();
-      let total = 0;
-      for (const { method, total: t2 } of groupMap.values()) {
-        total += t2;
-        const ex = methodMap.get(method) ?? { method, count: 0, total: 0 };
-        ex.count += 1; ex.total += t2;
-        methodMap.set(method, ex);
-      }
-      setStats({ total, groups: groupMap.size, byMethod: Array.from(methodMap.values()) });
-    }).catch(() => {});
-  }, [shift.date]);
+    let active = true;
+    Promise.all([
+      salesService.getShiftReport(shift.id),
+      salesService.getShiftCashSummary().catch(() => null),
+    ])
+      .then(([report, cash]) => {
+        if (!active) return;
+        setStats({
+          total: report.totalAmount,
+          groups: report.totalGroups,
+          byMethod: report.byPaymentMethod,
+        });
+        setCashSummary(cash);
+      })
+      .catch(() => {
+        if (!active) return;
+        setStats({ total: 0, groups: 0, byMethod: [] });
+        setCashSummary(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [shift.id]);
 
   const openedTime = new Date(shift.createdAt).toLocaleString("uz-UZ", {
     day: "2-digit", month: "2-digit", year: "numeric",
@@ -121,6 +127,10 @@ export default function ShiftCloseModal({ shift, onClose, onShiftClosed }: Props
               <span className="text-slate-400">{t("Smena ochildi")}</span>
               <span className="font-semibold text-white">{openedTime}</span>
             </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-400">{t("Boshlang'ich kassa")}</span>
+              <span className="font-semibold text-white">{moneyUZS(cashSummary?.openingAmount ?? shift.openingAmount ?? 0)}</span>
+            </div>
           </div>
 
           {/* Sales stats grid */}
@@ -149,6 +159,19 @@ export default function ShiftCloseModal({ shift, onClose, onShiftClosed }: Props
               );
             })}
           </div>
+
+          {cashSummary && (
+            <div className="rounded-2xl bg-[#0d1117] px-4 py-3">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-400">{t("Kassadan chiqim")}</span>
+                <span className="font-semibold text-rose-300">{moneyUZS(cashSummary.cashOutTotal)}</span>
+              </div>
+              <div className="mt-1.5 flex items-center justify-between text-sm">
+                <span className="text-slate-300">{t("Kutilgan kassa (boshlang'ich + naqd - chiqim)")}</span>
+                <span className="font-bold text-emerald-300">{moneyUZS(cashSummary.currentCash)}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer */}

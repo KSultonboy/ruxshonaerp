@@ -19,39 +19,44 @@ export default function SalesLayout({ children }: { children: React.ReactNode })
       if (active) setCheckedOnce(true);
       return;
     }
-    if (user.role !== "SALES" && user.role !== "MANAGER") {
+    if (user.role !== "SALES" && user.role !== "MANAGER" && user.role !== "ADMIN") {
       router.replace("/");
       if (active) setCheckedOnce(true);
       return;
     }
 
-    // open-shift page handles its own auth — skip shift check there
-    if (window.location.pathname === "/sales/open-shift") {
+    // Admin uchun shift tekshiruvi shart emas
+    if (user.role === "ADMIN") {
       setCheckedOnce(true);
       return;
     }
 
-    salesService.getShift()
-      .then((shift) => {
+    // SALES / MANAGER: ochiq smena bor-yo'qligini tekshiramiz
+    // Yo'q bo'lsa — avtomatik ochamiz (opening summa oldingi smenadan ko'chadi)
+    (async () => {
+      try {
+        const shift = await salesService.getShift().catch(() => null);
         if (!active) return;
-        if (!shift || shift.status !== "OPEN") {
-          router.replace("/sales/open-shift");
+
+        if (shift?.status === "OPEN") {
           if (active) setCheckedOnce(true);
           return;
         }
+
+        // Smena yo'q — avtomatik ochamiz
+        await salesService.openShift();
         if (active) setCheckedOnce(true);
-      })
-      .catch(() => {
-        if (!active) return;
-        router.replace("/sales/open-shift");
-        setCheckedOnce(true);
-      });
+      } catch {
+        // Ochib bo'lmasa ham sahifani ko'rsatamiz (sell sahifasi xatolikni o'zi ko'rsatadi)
+        if (active) setCheckedOnce(true);
+      }
+    })();
 
     return () => {
       active = false;
     };
   }, [loading, router, user]);
-  
+
   if (!checkedOnce) {
     return null;
   }

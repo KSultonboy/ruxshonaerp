@@ -27,6 +27,7 @@ interface ReceiptProps {
     cashbackEarned?: number;
     finalPaid?: number;
     cashbackBalance?: number;
+    cashSplitAmount?: number;
     fromBranch?: string;
     toBranch?: string;
     sourceLabel?: string;
@@ -257,10 +258,27 @@ export default function Receipt({ type, data }: ReceiptProps) {
               </span>
             </div>
           ) : null}
-          <div className="mt-0.5 flex items-center justify-between text-[10px]">
-            <span>{t("To'lov turi")}:</span>
-            <span className="shrink-0 pl-2 text-right font-semibold">{paymentLabel}</span>
-          </div>
+          {data.cashSplitAmount != null && data.cashSplitAmount > 0 && data.paymentMethod === "CASH" ? (
+            <>
+              <div className="mt-0.5 flex items-center justify-between text-[10px]">
+                <span>{t("Naqd")}:</span>
+                <span className="shrink-0 pl-2 text-right font-semibold">
+                  {formatDigitsWithSpaces(String(data.cashSplitAmount))} so'm
+                </span>
+              </div>
+              <div className="mt-0.5 flex items-center justify-between text-[10px]">
+                <span>{t("Karta")}:</span>
+                <span className="shrink-0 pl-2 text-right font-semibold">
+                  {formatDigitsWithSpaces(String(Math.max(0, receiptMeta.finalPaid - data.cashSplitAmount)))} so'm
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="mt-0.5 flex items-center justify-between text-[10px]">
+              <span>{t("To'lov turi")}:</span>
+              <span className="shrink-0 pl-2 text-right font-semibold">{paymentLabel}</span>
+            </div>
+          )}
           <div className="mt-0.5 flex items-center justify-between text-[10px]">
             <span>{t("Soni")}:</span>
             <span className="shrink-0 pl-2 text-right font-semibold">{receiptMeta.totalQty}</span>

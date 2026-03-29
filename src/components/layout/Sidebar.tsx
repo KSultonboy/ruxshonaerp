@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import Logo from "./Logo";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useI18n } from "@/components/i18n/I18nProvider";
@@ -260,8 +260,9 @@ function getGroupsForRole(
     icon: "warehouse",
     items: [
       { href: "/warehouse", label: t("Markaziy ombor"), icon: "warehouse" },
-      { href: "/production/entry", label: t("Ishlab chiqarilgan mahsulot kiritish"), icon: "add" },
-      { href: "/production/history", label: t("Tarix"), icon: "report" },
+      { href: "/production/recipes", label: t("Retseptlar"), icon: "categories" },
+      { href: "/production/orders", label: t("Ishlab chiqarish"), icon: "add" },
+      { href: "/production/history", label: t("Ombor harakati"), icon: "report" },
     ],
   };
 
@@ -286,7 +287,6 @@ function getGroupsForRole(
         label: t("Transfer va vazvrat"),
         icon: "transfer",
         items: [
-          { href: "/logistics/cashier", label: t("Transfer/Vazvrat kassasi"), icon: "cash" },
           { href: "/transfer/branches", label: t("Filiallarga transfer"), icon: "transfer" },
           { href: "/transfer/shops", label: t("Do'konlarga transfer"), icon: "transfer" },
           { href: "/returns/branches", label: t("Filial vazvrat"), icon: "return" },
@@ -308,12 +308,9 @@ function getGroupsForRole(
       icon: "dashboard",
       items: [
         { href: "/", label: t("Asosiy panel"), icon: "dashboard" },
-        { href: "/dashboard/branches", label: t("Filiallar"), icon: "branch" },
-        { href: "/dashboard/shops", label: t("Do'konlar"), icon: "shop" },
-        { href: "/dashboard/branches/photos", label: t("Filial rasmlari"), icon: "camera" },
-        { href: "/shifts", label: t("Smenalar"), icon: "shift" },
-        { href: "/reports", label: t("Hisobotlar"), icon: "report" },
+        { href: "/shifts", label: t("Smenalar va rasmlar"), icon: "shift" },
         { href: "/wages", label: t("Ish haqi"), icon: "report" },
+        { href: "/reports", label: t("Batafsil hisobot"), icon: "report" },
       ],
     },
     {
@@ -336,6 +333,7 @@ function getGroupsForRole(
       label: t("Kassa va xarajat"),
       icon: "cash",
       items: [
+        { href: "/sales/journal", label: t("Kassa jurnali"), icon: "cash" },
         { href: "/cash/branches", label: t("Filiallardan olish"), icon: "branch" },
         { href: "/cash/shops", label: t("Do'konlardan olish"), icon: "shop" },
         { href: "/expenses?new=1", label: t("Xarajat kiritish"), icon: "expenses" },
@@ -348,7 +346,6 @@ function getGroupsForRole(
       label: t("Transfer va vazvrat"),
       icon: "transfer",
       items: [
-        { href: "/logistics/cashier", label: t("Transfer/Vazvrat kassasi"), icon: "cash" },
         { href: "/transfer/branches", label: t("Filiallarga transfer"), icon: "transfer" },
         { href: "/transfer/shops", label: t("Do'konlarga transfer"), icon: "transfer" },
         { href: "/returns/branches", label: t("Filial vazvrat"), icon: "return" },
@@ -388,7 +385,6 @@ function getGroupsForRole(
           label: t("Mobile app"),
           icon: "mobile",
           items: [
-            { href: "/platforms/mobile/dashboard", label: t("Dashboard"), icon: "dashboard" },
             { href: "/platforms/mobile/customers", label: t("Mijozlar"), icon: "users" },
           ],
         },
@@ -421,7 +417,6 @@ function getGroupsForRole(
 
 export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const pathname = usePathname();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const { t } = useI18n();
@@ -615,10 +610,6 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     <button
                       type="button"
                       onClick={() => {
-                        if (group.key === "logistics") {
-                          router.push("/logistics/cashier");
-                          return;
-                        }
                         setOpenGroups((prev) => ({ ...prev, [group.key]: !open }));
                       }}
                       className={groupClass(active)}

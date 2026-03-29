@@ -1,541 +1,520 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Button from "@/components/ui/Button";
-import StatCard from "@/components/ui/StatCard";
-import Select from "@/components/ui/Select";
-
-import { ensureSeed } from "@/lib/seed";
-import { moneyUZS, safeDateLabel } from "@/lib/format";
-import { buildCSV, downloadCSV, fileStamp } from "@/lib/csv";
-
-import { productsService } from "@/services/products";
-import { expensesService } from "@/services/expenses";
-import { expenseCategoriesService } from "@/services/categories";
-import { statsService } from "@/services/stats";
-import { SERVICE_MODE } from "@/services/config";
-import { useI18n } from "@/components/i18n/I18nProvider";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { useToast } from "@/components/ui/toast/ToastProvider";
-import type { Product, Expense, Category, StatsOverview } from "@/lib/types";
+import { apiFetch } from "@/services/http";
+import { moneyUZS } from "@/lib/format";
 
-function isoToday() {
-  return new Date().toISOString().slice(0, 10);
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface StatsOverview {
+  revenue: number;
+  expensesTotal: number;
+  netProfit: number;
+  branchValue: number;
+  productsCount: number;
+  workersCount: number;
+  branchShopCount: number;
+  returns: number;
 }
 
-function isoDaysAgo(daysAgo: number) {
-  const d = new Date();
-  d.setDate(d.getDate() - daysAgo);
+interface TimeseriesPoint { start: string; end: string; value: number }
+interface SegmentRow { key: string; label: string; value: number }
+
+interface BranchCash {
+  branchId: string;
+  branchName: string;
+  currentCash: number;
+  shiftStatus: "OPEN" | "CLOSED" | null;
+  shiftDate: string | null;
+  hasData: boolean;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function today() { return new Date().toISOString().slice(0, 10); }
+function daysAgo(n: number) {
+  const d = new Date(); d.setDate(d.getDate() - n);
   return d.toISOString().slice(0, 10);
 }
+function monthStart() {
+  const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`;
+}
+function weekStart() { return daysAgo(6); }
 
-type ReportRange = "week" | "month" | "year";
-
-function getWeekBounds(year: number, week: number) {
-  const d = new Date(year, 0, 1);
-  const dayOfWeek = d.getDay();
-  const daysToAdd = (week - 1) * 7 - dayOfWeek + 1;
-  d.setDate(d.getDate() + daysToAdd);
-  const from = d.toISOString().slice(0, 10);
-  d.setDate(d.getDate() + 6);
-  const to = d.toISOString().slice(0, 10);
-  return { from, to };
+function fmtDate(iso: string) {
+  const d = new Date(iso);
+  return `${d.getDate()}-${d.toLocaleString("uz-UZ",{month:"short"})}`;
 }
 
-function getMonthBounds(year: number, month: number) {
-  const from = `${year}-${String(month).padStart(2, "0")}-01`;
-  const lastDay = new Date(year, month, 0).getDate();
-  const to = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
-  return { from, to };
+// ─── Mini bar chart (pure CSS) ────────────────────────────────────────────────
+
+const BAR_AREA_H = 100; // px — faqat bar balandligi (label hisoblanmaydi)
+
+function BarChart({ points, color = "#8F1D1D" }: { points: TimeseriesPoint[]; color?: string }) {
+  const max = Math.max(...points.map(p => p.value), 1);
+  const minWidth = Math.max(points.length * 28, 400);
+  return (
+    <div className="overflow-x-auto">
+      <div className="flex items-end gap-[3px]" style={{ minWidth }}>
+        {points.map((p, i) => {
+          const barH = Math.max((p.value / max) * BAR_AREA_H, 2);
+          return (
+            <div key={i} className="flex flex-col items-center flex-1 group relative">
+              <div className="absolute z-10 hidden group-hover:flex flex-col items-center
+                              bg-slate-800 text-white text-[10px] rounded px-2 py-1 whitespace-nowrap shadow-lg pointer-events-none"
+                   style={{ bottom: barH + 20 }}>
+                <span>{fmtDate(p.start)}</span>
+                <span className="font-bold">{moneyUZS(p.value)}</span>
+              </div>
+              <div
+                className="w-full rounded-t-sm transition-all"
+                style={{ height: barH, background: color, opacity: p.value > 0 ? 0.85 : 0.2 }}
+              />
+              <span className="text-[9px] text-slate-400 truncate w-full text-center mt-0.5 leading-tight">
+                {fmtDate(p.start)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
-function getYearBounds(year: number) {
-  return { from: `${year}-01-01`, to: `${year}-12-31` };
+// ─── KPI card ─────────────────────────────────────────────────────────────────
+
+function KpiCard({
+  label, value, sub, color = "bg-white", textColor = "text-slate-800", icon
+}: {
+  label: string; value: string; sub?: string;
+  color?: string; textColor?: string; icon: React.ReactNode;
+}) {
+  return (
+    <div className={`rounded-2xl border border-slate-200 ${color} px-5 py-4 shadow-sm`}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{label}</span>
+        <span className="text-slate-400">{icon}</span>
+      </div>
+      <div className={`text-2xl font-black tabular-nums ${textColor}`}>{value}</div>
+      {sub && <div className="mt-1 text-xs text-slate-400">{sub}</div>}
+    </div>
+  );
 }
 
-function getWeeksInYear(year: number) {
-  const d = new Date(year, 11, 31);
-  const week = getWeekNumber(d);
-  return week === 1 ? 52 : week;
+// ─── Horizontal bar ───────────────────────────────────────────────────────────
+
+function HBar({ label, value, max, color = "#8F1D1D", rank }: {
+  label: string; value: number; max: number; color?: string; rank?: number;
+}) {
+  const pct = max > 0 ? Math.max((value / max) * 100, 1) : 1;
+  return (
+    <div className="flex items-center gap-3">
+      {rank != null && (
+        <span className="w-5 text-center text-xs font-bold text-slate-400 shrink-0">{rank}</span>
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="flex justify-between mb-0.5">
+          <span className="text-sm font-medium text-slate-700 truncate max-w-[60%]">{label}</span>
+          <span className="text-sm font-bold text-slate-800 tabular-nums ml-2 shrink-0">{moneyUZS(value)}</span>
+        </div>
+        <div className="h-1.5 rounded-full bg-slate-100">
+          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
+        </div>
+      </div>
+    </div>
+  );
 }
 
-function getWeekNumber(date: Date) {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-}
+// ─── Period selector ─────────────────────────────────────────────────────────
+
+type Period = "today" | "week" | "month" | "custom";
+
+const PERIODS: { key: Period; label: string }[] = [
+  { key: "today", label: "Bugun" },
+  { key: "week",  label: "7 kun" },
+  { key: "month", label: "Oy" },
+  { key: "custom", label: "Belgilash" },
+];
+
+// ─── Main dashboard ───────────────────────────────────────────────────────────
 
 export default function Page() {
-  const { t } = useI18n();
-  const toast = useToast();
   const { user, loading: authLoading } = useAuth();
+  const { t } = useI18n();
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [reportRange, setReportRange] = useState<ReportRange>("month");
-  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
-  const [selectedWeek, setSelectedWeek] = useState<number>(getWeekNumber(new Date()));
-  const [stats, setStats] = useState<StatsOverview | null>(null);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [expCats, setExpCats] = useState<Category[]>([]);
-  const [statsError, setStatsError] = useState<string | null>(null);
+  const toast = useToast();
 
-  const today = isoToday();
-  const currentYear = new Date().getFullYear();
+  const [period, setPeriod] = useState<Period>("month");
+  const [customFrom, setCustomFrom] = useState(daysAgo(30));
+  const [customTo, setCustomTo] = useState(today());
+  const [loading, setLoading] = useState(true);
+
+  const [stats, setStats] = useState<StatsOverview | null>(null);
+  const [chartPoints, setChartPoints] = useState<TimeseriesPoint[]>([]);
+  const [topProducts, setTopProducts] = useState<SegmentRow[]>([]);
+  const [expensesByCategory, setExpensesByCategory] = useState<SegmentRow[]>([]);
+  const [branches, setBranches] = useState<BranchCash[]>([]);
+  const [totalBranchCash, setTotalBranchCash] = useState(0);
 
   useEffect(() => {
     if (authLoading) return;
-    if (user?.role === "SALES" || user?.role === "MANAGER") {
-      router.replace("/sales/sell");
-      return;
-    }
-    if (user?.role === "PRODUCTION") {
-      router.replace("/production/entry");
-    }
+    if (user?.role === "SALES" || user?.role === "MANAGER") { router.replace("/sales/sell"); return; }
+    if (user?.role === "PRODUCTION") { router.replace("/production/entry"); return; }
   }, [authLoading, router, user?.role]);
-  
-  const rangeOptions = useMemo(
-    () => [
-      { value: "week" as const, label: t("Hafta") },
-      { value: "month" as const, label: t("Oylik") },
-      { value: "year" as const, label: t("Yillik") },
-    ],
-    [t]
-  );
 
-  const yearOptions = useMemo(() => {
-    const years = [];
-    for (let y = currentYear - 5; y <= currentYear + 1; y++) {
-      years.push({ value: String(y), label: String(y) });
+  const range = useCallback((): { from: string; to: string } => {
+    switch (period) {
+      case "today":  return { from: today(), to: today() };
+      case "week":   return { from: weekStart(), to: today() };
+      case "month":  return { from: monthStart(), to: today() };
+      case "custom": return { from: customFrom, to: customTo };
     }
-    return years;
-  }, [currentYear]);
+  }, [period, customFrom, customTo]);
 
-  const monthOptions = useMemo(
-    () => [
-      { value: "1", label: t("Yanvar") },
-      { value: "2", label: t("Fevral") },
-      { value: "3", label: t("Mart") },
-      { value: "4", label: t("Aprel") },
-      { value: "5", label: t("May") },
-      { value: "6", label: t("Iyun") },
-      { value: "7", label: t("Iyul") },
-      { value: "8", label: t("Avgust") },
-      { value: "9", label: t("Sentabr") },
-      { value: "10", label: t("Oktabr") },
-      { value: "11", label: t("Noyabr") },
-      { value: "12", label: t("Dekabr") },
-    ],
-    [t]
-  );
-
-  const weekOptions = useMemo(() => {
-    const weeks = [];
-    const totalWeeks = getWeeksInYear(selectedYear);
-    for (let w = 1; w <= totalWeeks; w++) {
-      const bounds = getWeekBounds(selectedYear, w);
-      const label = `${t("Hafta")} ${w} (${safeDateLabel(bounds.from)} - ${safeDateLabel(bounds.to)})`;
-      weeks.push({ value: String(w), label });
-    }
-    return weeks;
-  }, [selectedYear, t]);
-
-  const rangeBounds = useMemo(() => {
-    if (reportRange === "week") {
-      return getWeekBounds(selectedYear, selectedWeek);
-    } else if (reportRange === "month") {
-      return getMonthBounds(selectedYear, selectedMonth);
-    } else {
-      return getYearBounds(selectedYear);
-    }
-  }, [reportRange, selectedYear, selectedMonth, selectedWeek]);
-
-  const refresh = useCallback(async () => {
+  const load = useCallback(async () => {
     setLoading(true);
-    setStatsError(null);
-    if (SERVICE_MODE === "local") ensureSeed();
+    const { from, to } = range();
+    const qs = `from=${from}&to=${to}`;
+    // 7-day chart always shows last 30 days daily
+    const chartFrom = daysAgo(29);
+    const chartQs = `metric=revenue&granularity=day&from=${chartFrom}&to=${today()}`;
 
-    const [ps, exps, cats, statsOverview] = await Promise.allSettled([
-      productsService.list(),
-      expensesService.list(),
-      expenseCategoriesService.list(),
-      statsService.overview(rangeBounds),
-    ]);
+    try {
+      const [
+        statsRes,
+        chartRes,
+        topProductsRes,
+        expCatRes,
+        branchCashRes,
+      ] = await Promise.allSettled([
+        apiFetch<StatsOverview>(`/stats/overview?${qs}`),
+        apiFetch<{ points: TimeseriesPoint[] }>(`/reports/timeseries?${chartQs}`),
+        apiFetch<SegmentRow[]>(`/reports/segments?metric=revenue&segmentBy=product&${qs}`),
+        apiFetch<SegmentRow[]>(`/reports/segments?metric=expenses&segmentBy=category&${qs}`),
+        apiFetch<BranchCash[]>(`/sales/all-branches-cash`),
+      ]);
 
-    if (ps.status === "fulfilled") setProducts(ps.value);
-    if (exps.status === "fulfilled") setExpenses(exps.value);
-    if (cats.status === "fulfilled") setExpCats(cats.value);
-
-    if (statsOverview.status === "fulfilled") {
-      setStats(statsOverview.value);
-    } else {
-      const message = statsOverview.reason instanceof Error ? statsOverview.reason.message : String(statsOverview.reason);
-      setStats(null);
-      setStatsError(message);
-      toast.error(t("Xatolik"), `${t("Dashboard ma'lumotlarini olishda xatolik")}: ${message}`);
+      if (statsRes.status === "fulfilled") setStats(statsRes.value);
+      if (chartRes.status === "fulfilled") setChartPoints(chartRes.value.points ?? []);
+      if (topProductsRes.status === "fulfilled") setTopProducts(topProductsRes.value.slice(0, 10));
+      if (expCatRes.status === "fulfilled") setExpensesByCategory(expCatRes.value.slice(0, 8));
+      if (branchCashRes.status === "fulfilled") {
+        setBranches(branchCashRes.value);
+        setTotalBranchCash(branchCashRes.value.reduce((s, b) => s + b.currentCash, 0));
+      }
+    } catch (e: any) {
+      toast.error(t("Xatolik"), e?.message);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
-  }, [rangeBounds, t, toast]);
+  }, [range, t, toast]);
 
   useEffect(() => {
     if (authLoading) return;
     if (user?.role === "SALES" || user?.role === "MANAGER" || user?.role === "PRODUCTION") return;
-    refresh();
-  }, [authLoading, refresh, user?.role]);
+    load();
+  }, [authLoading, load, user?.role]);
 
-const expCatMap = useMemo(() => new Map(expCats.map((c) => [c.id, c.name])), [expCats]);
+  if (authLoading || user?.role === "SALES" || user?.role === "MANAGER" || user?.role === "PRODUCTION") return null;
 
-  const upcomingFeatures = useMemo(
-    () => [
-      {
-        title: "Buyurtmalar",
-        description: "Buyurtmani qabul qilish va yetkazib berish bo'limlari uchun tayyorlash",
-      },
-      {
-        title: "Platformalar",
-        description: "Website, Telegram bot va mobilga yangi modullarini kengaytirish",
-      },
-      {
-        title: "Kassa & Xarajatlar",
-        description: "Filial va do'konlar uchun kassa, ingredient, dekor va kommunal to'lovlar paneli",
-      },
-      {
-        title: "Transfer + Vazvrat",
-        description: "Filiallarga transferlar, qabul qilish va vazvratlar avtomatik tarzda boshqariladi",
-      },
-    ],
-    []
-  );
-
-  const statCards = useMemo(
-    () => [
-      {
-        id: "revenue",
-        title: "Umumiy daromad",
-        value: (data: StatsOverview) => moneyUZS(data.revenue),
-        variant: "info" as const,
-        icon: (
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        ),
-      },
-      {
-        id: "received",
-        title: "Olingan pullar",
-        value: (data: StatsOverview) => moneyUZS(data.received),
-        variant: "success" as const,
-        icon: (
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M3 7h18v10H3zM3 10h18" strokeLinecap="round" strokeLinejoin="round"/>
-            <circle cx="12" cy="14" r="2" strokeWidth="1.5"/>
-          </svg>
-        ),
-      },
-      {
-        id: "expenses-total",
-        title: "Xarajatlar yig'indisi",
-        value: (data: StatsOverview) => moneyUZS(data.expensesTotal),
-        variant: "warning" as const,
-        icon: (
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M5 7h14v12H5zM8 5h8" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        ),
-      },
-      {
-        id: "profit",
-        title: "Sof foyda",
-        value: (data: StatsOverview) => moneyUZS(data.netProfit),
-        hint: t("Daromad - xarajat"),
-        variant: "success" as const,
-        icon: (
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" strokeLinecap="round" strokeLinejoin="round"/>
-            <polyline points="16 7 22 7 22 13" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        ),
-      },
-      {
-        id: "returns",
-        title: "Umumiy vazvrat",
-        value: (data: StatsOverview) => moneyUZS(data.returns),
-        variant: "danger" as const,
-        icon: (
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M7 7H4v3m0-3 4 4m-4-4h9a6 6 0 1 1 0 12h-3" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        ),
-      },
-      {
-        id: "branch-value",
-        title: "Filial omborlari narxi",
-        value: (data: StatsOverview) => moneyUZS(data.branchValue),
-        variant: "default" as const,
-        icon: (
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M3 10 12 4l9 6v10H3z" strokeLinejoin="round"/>
-            <path d="M9 21v-6h6v6" strokeLinejoin="round"/>
-          </svg>
-        ),
-      },
-      {
-        id: "products",
-        title: "Mahsulotlar soni",
-        value: (data: StatsOverview) => String(data.productsCount),
-        variant: "default" as const,
-        icon: (
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M4 7h16v13H4zM7 4h10v3H7z" strokeLinejoin="round"/>
-          </svg>
-        ),
-      },
-      {
-        id: "workers",
-        title: "Ishchilar soni",
-        value: (data: StatsOverview) => String(data.workersCount),
-        variant: "default" as const,
-        icon: (
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M8.5 11.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zm7 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" strokeLinejoin="round"/>
-            <path d="M3.5 19a5 5 0 0 1 10 0m1.5 0a4 4 0 0 1 5.5-3.5" strokeLinecap="round"/>
-          </svg>
-        ),
-      },
-      {
-        id: "branch-shop",
-        title: "Filial va do'konlar soni",
-        value: (data: StatsOverview) => String(data.branchShopCount),
-        variant: "default" as const,
-        icon: (
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M4 9h16l-1-4H5l-1 4Zm1 0v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9" strokeLinejoin="round"/>
-          </svg>
-        ),
-      },
-      {
-        id: "expenses-count",
-        title: "Xarajatlar soni",
-        value: (data: StatsOverview) => String(data.expensesCount),
-        variant: "default" as const,
-        icon: (
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M9 7H6l-1 11h14L18 7h-3" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M9 7a3 3 0 0 1 6 0" strokeLinecap="round"/>
-          </svg>
-        ),
-      },
-      {
-        id: "categories",
-        title: "Kategoriyalar soni",
-        value: (data: StatsOverview) => String(data.categoriesCount),
-        variant: "default" as const,
-        icon: (
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z" strokeLinejoin="round"/>
-          </svg>
-        ),
-      },
-    ],
-    [t]
-  );
-
-  function exportExpensesCSV() {
-    const headers = ["Date", "Category", "Payment", "Amount_UZS", "Note"];
-    const rows = expenses.map((e) => [
-      e.date,
-      expCatMap.get(e.categoryId) ?? "",
-      e.paymentMethod,
-      e.amount,
-      e.note ?? "",
-    ]);
-    const csv = buildCSV(headers, rows);
-    downloadCSV(`ruxshona-expenses-${fileStamp()}.csv`, csv);
-  }
-
-function exportProductsCSV() {
-  const headers = ["Name", "Price_UZS", "SalePrice_UZS", "ShopPrice_UZS", "Active"];
-  const rows = products.map((p) => [
-    p.name,
-    typeof p.price === "number" ? p.price : "",
-    typeof p.salePrice === "number" ? p.salePrice : "",
-    typeof p.shopPrice === "number" ? p.shopPrice : "",
-    p.active ? "YES" : "NO",
-  ]);
-  const csv = buildCSV(headers, rows);
-  downloadCSV(`ruxshona-products-${fileStamp()}.csv`, csv);
-}
-
-  if (authLoading || user?.role === "SALES" || user?.role === "MANAGER" || user?.role === "PRODUCTION") {
-    return null;
-  }
+  const topProductMax = topProducts[0]?.value ?? 1;
+  const expCatMax = expensesByCategory[0]?.value ?? 1;
+  const openBranches = branches.filter(b => b.shiftStatus === "OPEN").length;
 
   return (
     <div className="space-y-6">
-      {/* Page header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
+
+      {/* ── Header ── */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-cocoa-900">{t("Bosh panel")}</h1>
-          <p className="mt-0.5 text-sm text-cocoa-500">
-            {safeDateLabel(today)}
-            <span className="mx-2 text-cocoa-300">·</span>
-            <span className="font-medium text-berry-700">{SERVICE_MODE}</span>
-          </p>
+          <h1 className="text-2xl font-bold text-slate-900">{t("Bosh panel")}</h1>
+          <p className="mt-0.5 text-sm text-slate-400">{new Date().toLocaleDateString("uz-UZ", { weekday:"long", day:"numeric", month:"long", year:"numeric" })}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="ghost" onClick={exportProductsCSV} disabled={products.length === 0} className="text-xs px-3 py-1.5">
-            {t("Mahsulotlar CSV")}
-          </Button>
-          <Button variant="ghost" onClick={exportExpensesCSV} disabled={expenses.length === 0} className="text-xs px-3 py-1.5">
-            {t("Xarajatlar CSV")}
-          </Button>
-          <Button onClick={refresh} disabled={loading} className="text-xs px-3 py-1.5">
-            {loading ? t("Yuklanmoqda...") : t("Yangilash")}
-          </Button>
-        </div>
+        <button
+          onClick={() => void load()}
+          disabled={loading}
+          className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 shadow-sm"
+        >
+          <svg className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          {loading ? t("Yuklanmoqda...") : t("Yangilash")}
+        </button>
       </div>
 
-      {/* Error banner */}
-      {statsError ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          {t("Dashboard ma'lumotlarini olishda xatolik")}: {statsError}
-        </div>
-      ) : null}
-
-      {/* Period filter */}
-      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-cream-200 bg-white p-4 shadow-card">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="mr-2 text-xs font-semibold uppercase tracking-wide text-cocoa-500">{t("Davr")}:</span>
-          {rangeOptions.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                reportRange === option.value
-                  ? "bg-berry-700 text-white shadow-glow-sm"
-                  : "border border-cream-200 bg-cream-50 text-cocoa-600 hover:bg-cream-100"
-              }`}
-              onClick={() => setReportRange(option.value)}
-            >
-              {option.label}
+      {/* ── Period filter ── */}
+      <div className="flex flex-wrap items-center gap-2">
+        {PERIODS.map(p => (
+          <button
+            key={p.key}
+            onClick={() => setPeriod(p.key)}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+              period === p.key
+                ? "bg-[#8F1D1D] text-white shadow"
+                : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            {t(p.label)}
+          </button>
+        ))}
+        {period === "custom" && (
+          <>
+            <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:border-[#8F1D1D]" />
+            <span className="text-slate-400 text-sm">—</span>
+            <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:border-[#8F1D1D]" />
+            <button onClick={() => void load()}
+              className="rounded-xl bg-[#8F1D1D] px-4 py-2 text-sm font-semibold text-white hover:bg-[#7a1818]">
+              {t("Qo'llash")}
             </button>
-          ))}
-        </div>
-        <Select
-          label={t("Yil")}
-          value={String(selectedYear)}
-          onChange={(e) => {
-            const year = parseInt(e.target.value);
-            setSelectedYear(year);
-            if (reportRange === "week") {
-              const maxWeek = getWeeksInYear(year);
-              if (selectedWeek > maxWeek) setSelectedWeek(maxWeek);
-            }
-          }}
-          options={yearOptions}
-          className="min-w-[110px]"
+          </>
+        )}
+      </div>
+
+      {/* ── KPI row ── */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KpiCard
+          label={t("Umumiy daromad")}
+          value={stats ? moneyUZS(stats.revenue) : "..."}
+          sub={t("Tanlangan davr")}
+          color="bg-emerald-50"
+          textColor="text-emerald-700"
+          icon={<svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>}
         />
-        {reportRange === "month" && (
-          <Select
-            label={t("Oy")}
-            value={String(selectedMonth)}
-            onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-            options={monthOptions}
-            className="min-w-[130px]"
-          />
-        )}
-        {reportRange === "week" && (
-          <Select
-            label={t("Hafta")}
-            value={String(selectedWeek)}
-            onChange={(e) => setSelectedWeek(parseInt(e.target.value))}
-            options={weekOptions}
-            className="min-w-[130px]"
-          />
-        )}
-        <Button onClick={refresh} disabled={loading} className="text-xs px-4 py-2">
-          {loading ? t("Yuklanmoqda...") : t("Qo'llash")}
-        </Button>
+        <KpiCard
+          label={t("Xarajatlar")}
+          value={stats ? moneyUZS(stats.expensesTotal) : "..."}
+          sub={t("Tanlangan davr")}
+          color="bg-rose-50"
+          textColor="text-rose-700"
+          icon={<svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" d="M5 7h14v12H5zM8 5h8"/></svg>}
+        />
+        <KpiCard
+          label={t("Sof foyda")}
+          value={stats ? moneyUZS(stats.netProfit) : "..."}
+          sub={t("Daromad − xarajat")}
+          color={stats && stats.netProfit < 0 ? "bg-rose-50" : "bg-blue-50"}
+          textColor={stats && stats.netProfit < 0 ? "text-rose-700" : "text-blue-700"}
+          icon={<svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><polyline strokeLinecap="round" points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline strokeLinecap="round" points="16 7 22 7 22 13"/></svg>}
+        />
+        <KpiCard
+          label={t("Kassalar qoldig'i")}
+          value={moneyUZS(totalBranchCash)}
+          sub={`${openBranches} ${t("ta smena ochiq")} · ${branches.length} ${t("ta filial")}`}
+          color="bg-amber-50"
+          textColor="text-amber-700"
+          icon={<svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path d="M3 7h18v10H3z"/><circle cx="12" cy="12" r="2.5"/></svg>}
+        />
       </div>
 
-      {/* Financial KPI row */}
-      <div>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-cocoa-400">{t("Moliyaviy ko'rsatkichlar")}</h2>
-        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-          {statCards.slice(0, 4).map((card) => (
-            <StatCard
-              key={card.id}
-              title={t(card.title)}
-              value={stats ? card.value(stats) : loading ? "..." : "—"}
-              hint={card.hint}
-              variant={card.variant}
-              icon={card.icon}
-            />
-          ))}
+      {/* ── 30-day chart + mini stats ── */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-sm font-bold text-slate-700">{t("30 kunlik sotuv dinamikasi")}</h2>
+            <span className="text-xs text-slate-400">{t("Kunlik daromad")}</span>
+          </div>
+          {chartPoints.length > 0
+            ? <BarChart points={chartPoints} color="#8F1D1D" />
+            : <div className="h-28 flex items-center justify-center text-sm text-slate-400">{loading ? t("Yuklanmoqda...") : t("Ma'lumot yo'q")}</div>
+          }
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="mb-4 text-sm font-bold text-slate-700">{t("Umumiy ko'rsatkichlar")}</h2>
+          <div className="space-y-3">
+            {[
+              { label: t("Mahsulotlar soni"), value: String(stats?.productsCount ?? "—"), icon: "📦" },
+              { label: t("Ishchilar soni"), value: String(stats?.workersCount ?? "—"), icon: "👥" },
+              { label: t("Filial + Do'konlar"), value: String(stats?.branchShopCount ?? "—"), icon: "🏪" },
+              { label: t("Ombor qiymati"), value: stats ? moneyUZS(stats.branchValue) : "—", icon: "🏭" },
+              { label: t("Vazvrat"), value: stats ? moneyUZS(stats.returns) : "—", icon: "↩️" },
+            ].map((row) => (
+              <div key={row.label} className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2.5">
+                <div className="flex items-center gap-2 text-sm text-slate-600">
+                  <span>{row.icon}</span>
+                  <span>{row.label}</span>
+                </div>
+                <span className="text-sm font-bold text-slate-800 tabular-nums">{row.value}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Returns + Stock row */}
-      <div>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-cocoa-400">{t("Vazvrat va ombor")}</h2>
-        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-          {statCards.slice(4, 7).map((card) => (
-            <StatCard
-              key={card.id}
-              title={t(card.title)}
-              value={stats ? card.value(stats) : loading ? "..." : "—"}
-              hint={card.hint}
-              variant={card.variant}
-              icon={card.icon}
-            />
-          ))}
+      {/* ── Branches + Top products ── */}
+      <div className="grid gap-4 lg:grid-cols-2">
+
+        {/* Filiallar holati */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-sm font-bold text-slate-700">{t("Filiallar — joriy kassa")}</h2>
+            <span className="text-xs font-semibold text-slate-400">{t("Jami")}: {moneyUZS(totalBranchCash)}</span>
+          </div>
+          {branches.length === 0
+            ? <div className="py-8 text-center text-sm text-slate-400">{loading ? t("Yuklanmoqda...") : t("Filiallar yo'q")}</div>
+            : (
+              <div className="space-y-2">
+                {branches.map((b) => (
+                  <div key={b.branchId} className={`flex items-center justify-between rounded-xl px-4 py-3 border ${
+                    b.shiftStatus === "OPEN"
+                      ? "border-emerald-200 bg-emerald-50"
+                      : b.hasData
+                      ? "border-slate-200 bg-slate-50"
+                      : "border-amber-200 bg-amber-50"
+                  }`}>
+                    <div className="flex items-center gap-3">
+                      <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${
+                        b.shiftStatus === "OPEN" ? "bg-emerald-500" : b.hasData ? "bg-slate-400" : "bg-amber-400"
+                      }`}/>
+                      <div>
+                        <div className="text-sm font-semibold text-slate-800">{b.branchName}</div>
+                        <div className="text-xs text-slate-500">
+                          {b.shiftStatus === "OPEN"
+                            ? `🟢 ${t("Smena ochiq")}${b.shiftDate ? ` · ${b.shiftDate}` : ""}`
+                            : b.hasData
+                            ? `⚫ ${t("Yopilgan")}${b.shiftDate ? ` · ${b.shiftDate}` : ""}`
+                            : `⚠️ ${t("Ma'lumot yo'q")}`}
+                        </div>
+                      </div>
+                    </div>
+                    <div className={`text-lg font-black tabular-nums ${
+                      b.shiftStatus === "OPEN" ? "text-emerald-700" : "text-slate-700"
+                    }`}>
+                      {b.currentCash.toLocaleString()}
+                      <span className="text-xs font-normal ml-1 text-slate-400">{t("so'm")}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+          }
+        </div>
+
+        {/* Top mahsulotlar */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-sm font-bold text-slate-700">{t("Ko'p sotiladigan mahsulotlar")}</h2>
+            <span className="text-xs text-slate-400">{t("Daromad bo'yicha")}</span>
+          </div>
+          {topProducts.length === 0
+            ? <div className="py-8 text-center text-sm text-slate-400">{loading ? t("Yuklanmoqda...") : t("Sotuv ma'lumoti yo'q")}</div>
+            : (
+              <div className="space-y-3">
+                {topProducts.map((p, i) => (
+                  <HBar
+                    key={p.key}
+                    rank={i + 1}
+                    label={p.label}
+                    value={p.value}
+                    max={topProductMax}
+                    color={i === 0 ? "#8F1D1D" : i === 1 ? "#B64242" : i === 2 ? "#E07A5F" : "#94a3b8"}
+                  />
+                ))}
+              </div>
+            )
+          }
         </div>
       </div>
 
-      {/* Counts row */}
-      <div>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-cocoa-400">{t("Umumiy ma'lumotlar")}</h2>
-        <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
-          {statCards.slice(7).map((card) => (
-            <StatCard
-              key={card.id}
-              title={t(card.title)}
-              value={stats ? card.value(stats) : loading ? "..." : "—"}
-              hint={card.hint}
-              variant={card.variant}
-              icon={card.icon}
-            />
-          ))}
+      {/* ── Expenses by category + Profit by product ── */}
+      <div className="grid gap-4 lg:grid-cols-2">
+
+        {/* Xarajatlar kategoriya bo'yicha */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-sm font-bold text-slate-700">{t("Xarajatlar kategoriya bo'yicha")}</h2>
+            <span className="text-xs font-semibold text-rose-600">{stats ? moneyUZS(stats.expensesTotal) : "..."}</span>
+          </div>
+          {expensesByCategory.length === 0
+            ? <div className="py-8 text-center text-sm text-slate-400">{loading ? t("Yuklanmoqda...") : t("Xarajat yo'q")}</div>
+            : (
+              <div className="space-y-3">
+                {expensesByCategory.map((e, i) => {
+                  const pct = stats?.expensesTotal ? Math.round((e.value / stats.expensesTotal) * 100) : 0;
+                  return (
+                    <HBar
+                      key={e.key}
+                      rank={i + 1}
+                      label={`${e.label} (${pct}%)`}
+                      value={e.value}
+                      max={expCatMax}
+                      color={["#be123c","#dc2626","#ef4444","#f87171","#fca5a5","#fecaca","#fee2e2","#fff1f2"][i] ?? "#e2e8f0"}
+                    />
+                  );
+                })}
+              </div>
+            )
+          }
+        </div>
+
+        {/* Foyda/zarar xulosasi */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="mb-4 text-sm font-bold text-slate-700">{t("Moliyaviy xulosa")}</h2>
+          {stats ? (
+            <div className="space-y-4">
+              {/* Visual profit breakdown */}
+              {[
+                { label: t("Daromad"), value: stats.revenue, color: "bg-emerald-500" },
+                { label: t("Xarajatlar"), value: stats.expensesTotal, color: "bg-rose-500" },
+                { label: t("Vazvrat"), value: stats.returns, color: "bg-amber-400" },
+              ].map(row => {
+                const max = Math.max(stats.revenue, 1);
+                const pct = Math.round((row.value / max) * 100);
+                return (
+                  <div key={row.label}>
+                    <div className="mb-1 flex justify-between text-sm">
+                      <span className="font-medium text-slate-600">{row.label}</span>
+                      <span className="font-bold text-slate-800 tabular-nums">{moneyUZS(row.value)}</span>
+                    </div>
+                    <div className="h-3 rounded-full bg-slate-100">
+                      <div className={`h-full rounded-full ${row.color}`} style={{ width: `${Math.max(pct,1)}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Profit result */}
+              <div className={`mt-2 rounded-xl px-4 py-4 text-center ${
+                stats.netProfit >= 0 ? "bg-emerald-50 border border-emerald-200" : "bg-rose-50 border border-rose-200"
+              }`}>
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">{t("Sof foyda")}</div>
+                <div className={`text-3xl font-black tabular-nums ${stats.netProfit >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                  {stats.netProfit >= 0 ? "+" : ""}{moneyUZS(stats.netProfit)}
+                </div>
+                {stats.revenue > 0 && (
+                  <div className="mt-1 text-xs text-slate-500">
+                    {t("Margin")}: {Math.round((stats.netProfit / stats.revenue) * 100)}%
+                  </div>
+                )}
+              </div>
+
+              {/* Quick links */}
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                {[
+                  { href: "/reports", label: t("Batafsil hisobot") },
+                  { href: "/sales/journal", label: t("Kassa jurnali") },
+                  { href: "/expenses", label: t("Xarajatlar") },
+                  { href: "/reports/profit", label: t("Foyda hisoboti") },
+                ].map(link => (
+                  <a key={link.href} href={link.href}
+                    className="flex items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition text-center">
+                    {link.label}
+                  </a>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="py-8 text-center text-sm text-slate-400">{loading ? t("Yuklanmoqda...") : t("Ma'lumot yo'q")}</div>
+          )}
         </div>
       </div>
 
-      {/* Quick links */}
-      <div>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-cocoa-400">{t("Tezkor havolalar")}</h2>
-        <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-          {[
-            { href: "/reports",        label: t("Hisobotlar"),      color: "text-blue-600  bg-blue-50  border-blue-100"  },
-            { href: "/cash/shops",     label: t("Do'kon kassa"),    color: "text-emerald-600 bg-emerald-50 border-emerald-100" },
-            { href: "/cash/branches",  label: t("Filial kassa"),    color: "text-emerald-600 bg-emerald-50 border-emerald-100" },
-            { href: "/expenses",       label: t("Xarajatlar"),      color: "text-amber-600  bg-amber-50  border-amber-100"  },
-            { href: "/dashboard/shops",label: t("Do'konlar"),       color: "text-violet-600 bg-violet-50 border-violet-100" },
-            { href: "/dashboard/branches", label: t("Filiallar"),   color: "text-violet-600 bg-violet-50 border-violet-100" },
-          ].map((link) => (
-            <a
-              key={link.href}
-              href={link.href}
-              className={`flex items-center justify-center rounded-xl border px-3 py-3 text-center text-xs font-semibold transition hover:shadow-card-md ${link.color}`}
-            >
-              {link.label}
-            </a>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }

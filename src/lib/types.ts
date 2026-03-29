@@ -393,10 +393,36 @@ export type Shift = {
   photos: string[];
   branchId: string;
   openedById: string;
+  openingAmount?: number | null;
+  expectedAmount?: number | null;
   closedAt?: string | null;
   closingAmount?: number | null;
+  differenceAmount?: number | null;
+  closeNote?: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ShiftCashOutRecipient = "OWNER" | "SUPPLIER" | "OTHER";
+
+export type ShiftCashOutItem = {
+  id: string;
+  amount: number;
+  recipientType: ShiftCashOutRecipient;
+  note?: string | null;
+  createdAt: string;
+  createdBy?: { id: string; username: string } | null;
+};
+
+export type ShiftCashSummary = {
+  shiftId: string;
+  shiftDate: string;
+  openingAmount: number;
+  cashSalesTotal: number;
+  cashOutTotal: number;
+  currentCash: number;
+  warnings?: string[];
+  cashOuts: ShiftCashOutItem[];
 };
 
 export type ShiftWithMeta = Shift & {

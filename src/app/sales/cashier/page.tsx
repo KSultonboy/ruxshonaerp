@@ -13,11 +13,13 @@ import { salesService } from "@/services/sales";
 import { telegramCashbackService } from "@/services/telegram-cashback";
 import { printCurrentWindowByMode } from "@/lib/desktop-printer";
 import { formatDigitsWithSpaces } from "@/lib/mask";
+import { getJSON, setJSON } from "@/lib/storage";
 import type {
   Branch,
   BranchStock,
   PaymentMethod,
   SaleHistoryGroup,
+  ShiftCashSummary,
   TelegramCashbackUser,
 } from "@/lib/types";
 
@@ -52,6 +54,7 @@ interface CustomerSession {
   pendingItem: PendingCartItem | null;
   quantityInput: string;
   payment: PaymentMethod;
+  splitCashInput: string;
   cashbackBarcode: string;
   cashbackRedeemAmount: string;
   cashbackUser: TelegramCashbackUser | null;
@@ -64,6 +67,7 @@ interface SaleReceiptData {
   quantity: number;
   price?: number;
   paymentMethod?: PaymentMethod;
+  cashSplitAmount?: number;
   branchName?: string;
   subtotal?: number;
   cashbackUsed?: number;
@@ -78,6 +82,10 @@ interface SaleReceiptData {
 }
 
 type SidebarMode = "customers" | "history";
+type CatalogCacheStore = Record<string, { updatedAt: number; items: BranchStock[] }>;
+
+const SALES_CATALOG_CACHE_KEY = "sales_cashier_catalog_cache_v1";
+const SALES_CATALOG_CACHE_BRANCH_LIMIT = 20;
 
 function sanitizeDecimalInput(value: string) {
   let normalized = value.replace(",", ".").replace(/[^0-9.]/g, "");
@@ -177,10 +185,49 @@ function createCustomerSession(index: number): CustomerSession {
     pendingItem: null,
     quantityInput: "",
     payment: "CASH",
+    splitCashInput: "",
     cashbackBarcode: "",
     cashbackRedeemAmount: "",
     cashbackUser: null,
   };
+}
+
+function getCatalogBranchCacheKey(branchId?: string) {
+  return branchId || "__default__";
+}
+
+function readCatalogCache(branchId?: string) {
+  const store = getJSON<CatalogCacheStore>(SALES_CATALOG_CACHE_KEY, {});
+  const entry = store[getCatalogBranchCacheKey(branchId)];
+  return Array.isArray(entry?.items) ? entry.items : [];
+}
+
+function writeCatalogCache(branchId: string | undefined, items: BranchStock[]) {
+  const store = getJSON<CatalogCacheStore>(SALES_CATALOG_CACHE_KEY, {});
+  const cacheKey = getCatalogBranchCacheKey(branchId);
+  const now = Date.now();
+  const next: CatalogCacheStore = {
+    ...store,
+    [cacheKey]: { updatedAt: now, items },
+  };
+
+  const keys = Object.keys(next);
+  if (keys.length > SALES_CATALOG_CACHE_BRANCH_LIMIT) {
+    const removable = keys
+      .sort((a, b) => (next[a]?.updatedAt ?? 0) - (next[b]?.updatedAt ?? 0))
+      .slice(0, keys.length - SALES_CATALOG_CACHE_BRANCH_LIMIT);
+    for (const key of removable) {
+      delete next[key];
+    }
+  }
+
+  setJSON(SALES_CATALOG_CACHE_KEY, next);
+}
+
+function toAvailableCatalogItems(list: BranchStock[]) {
+  return list
+    .filter((item) => Number(item.quantity ?? 0) > 0 && item.product?.id)
+    .sort((a, b) => String(a.product?.name ?? "").localeCompare(String(b.product?.name ?? "")));
 }
 
 export default function SalesCashierPage() {
@@ -211,10 +258,13 @@ export default function SalesCashierPage() {
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>("customers");
   const [confirmClearCustomerIndex, setConfirmClearCustomerIndex] = useState<number | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogSyncing, setCatalogSyncing] = useState(false);
   const [catalogItems, setCatalogItems] = useState<BranchStock[]>([]);
   const [catalogQuery, setCatalogQuery] = useState("");
+  const catalogRequestIdRef = useRef(0);
   const [todaySalesTotal, setTodaySalesTotal] = useState(0);
   const [todaySalesLoading, setTodaySalesLoading] = useState(false);
+  const [cashSummary, setCashSummary] = useState<ShiftCashSummary | null>(null);
   const [cashbackLookupLoading, setCashbackLookupLoading] = useState(false);
   const [recentSalesLoading, setRecentSalesLoading] = useState(false);
   const [recentSaleGroups, setRecentSaleGroups] = useState<SaleHistoryGroup[]>([]);
@@ -231,6 +281,7 @@ export default function SalesCashierPage() {
   const pendingItem = activeCustomer?.pendingItem ?? null;
   const quantityInput = activeCustomer?.quantityInput ?? "";
   const payment = activeCustomer?.payment ?? "CASH";
+  const splitCashInput = activeCustomer?.splitCashInput ?? "";
   const cashbackBarcode = activeCustomer?.cashbackBarcode ?? "";
   const cashbackRedeemAmount = activeCustomer?.cashbackRedeemAmount ?? "";
   const cashbackUser = activeCustomer?.cashbackUser ?? null;
@@ -271,8 +322,15 @@ export default function SalesCashierPage() {
 
   useEffect(() => {
     if (!searchOpen) return;
-    void loadCatalog();
+    void loadCatalog({ silent: false, useCacheFirst: true });
   }, [searchOpen, branchId]);
+
+  useEffect(() => {
+    const cached = readCatalogCache(branchId);
+    setCatalogItems(cached);
+    void loadCatalog({ silent: true, useCacheFirst: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branchId]);
 
   useEffect(() => {
     if (!searchOpen) return;
@@ -357,6 +415,7 @@ export default function SalesCashierPage() {
       pendingItem: null,
       quantityInput: "",
       payment: "CASH",
+      splitCashInput: "",
       cashbackBarcode: "",
       cashbackRedeemAmount: "",
       cashbackUser: null,
@@ -530,19 +589,43 @@ export default function SalesCashierPage() {
     setBarcode("");
   }
 
-  async function loadCatalog() {
-    setCatalogLoading(true);
+  async function loadCatalog(options?: { silent?: boolean; useCacheFirst?: boolean }) {
+    const silent = options?.silent ?? false;
+    const useCacheFirst = options?.useCacheFirst ?? true;
+    const requestId = ++catalogRequestIdRef.current;
+
+    let cached: BranchStock[] = [];
+    if (useCacheFirst) {
+      cached = readCatalogCache(branchId);
+      if (cached.length > 0) {
+        setCatalogItems(cached);
+      }
+    }
+
+    if (!silent) {
+      setCatalogLoading(cached.length === 0);
+    }
+    setCatalogSyncing(cached.length > 0);
+
     try {
       const list = await salesService.branchStock(branchId);
-      const available = list
-        .filter((item) => Number(item.quantity ?? 0) > 0 && item.product?.id)
-        .sort((a, b) => String(a.product?.name ?? "").localeCompare(String(b.product?.name ?? "")));
+      if (requestId !== catalogRequestIdRef.current) return;
+      const available = toAvailableCatalogItems(list);
       setCatalogItems(available);
+      writeCatalogCache(branchId, available);
     } catch (error: unknown) {
-      toast.error(t("Xatolik"), extractErrorMessage(error, t("Ma'lumotlarni yuklab bo'lmadi")));
-      setCatalogItems([]);
+      if (requestId !== catalogRequestIdRef.current) return;
+      if (cached.length === 0 || !silent) {
+        toast.error(t("Xatolik"), extractErrorMessage(error, t("Ma'lumotlarni yuklab bo'lmadi")));
+      }
+      if (cached.length === 0) {
+        setCatalogItems([]);
+      }
     } finally {
-      setCatalogLoading(false);
+      if (requestId === catalogRequestIdRef.current) {
+        setCatalogLoading(false);
+        setCatalogSyncing(false);
+      }
     }
   }
 
@@ -581,6 +664,15 @@ export default function SalesCashierPage() {
     }
   }
 
+  async function refreshShiftCashSummary() {
+    try {
+      const summary = await salesService.getShiftCashSummary();
+      setCashSummary(summary);
+    } catch {
+      setCashSummary(null);
+    }
+  }
+
   function loadHistoryGroupIntoCart(group: SaleHistoryGroup) {
     updateActiveCustomerSession((session) => ({
       ...session,
@@ -595,6 +687,7 @@ export default function SalesCashierPage() {
       pendingItem: null,
       quantityInput: "",
       payment: group.paymentMethod,
+      splitCashInput: "",
       cashbackBarcode: "",
       cashbackRedeemAmount: "",
       cashbackUser: null,
@@ -772,6 +865,7 @@ export default function SalesCashierPage() {
     const currentCustomer = customerSessions[customerIndex];
     const currentCartItems = currentCustomer?.cartItems ?? [];
     const currentPayment = currentCustomer?.payment ?? "CASH";
+    const currentSplitCashInput = currentCustomer?.splitCashInput ?? "";
     const currentCashbackBarcode = currentCustomer?.cashbackBarcode?.trim() ?? "";
     const currentRedeemedAmount = parseMoneyInput(currentCustomer?.cashbackRedeemAmount ?? "");
     const currentCashbackUser = currentCustomer?.cashbackUser ?? null;
@@ -807,8 +901,15 @@ export default function SalesCashierPage() {
         (sum, item) => sum + Number(item.quantity || 0) * Number(item.price || 0),
         0,
       );
+      // Split payment: calculate per-item cash portion proportionally
+      const splitCashTotal = parseMoneyInput(currentSplitCashInput);
+      const isSplitPayment = currentPayment === "CASH" && splitCashTotal > 0 && splitCashTotal < grossSaleAmount;
       if (!editingHistoryGroup) {
         for (const item of currentCartItems) {
+          const itemTotal = Number(item.quantity || 0) * Number(item.price || 0);
+          const itemCashAmount = isSplitPayment && grossSaleAmount > 0
+            ? Math.round((itemTotal / grossSaleAmount) * splitCashTotal)
+            : undefined;
           const sale = await salesService.sell({
             barcode: item.barcode,
             quantity: Number(item.quantity),
@@ -816,6 +917,7 @@ export default function SalesCashierPage() {
             branchId,
             date: saleDate,
             saleGroupId,
+            cashAmount: itemCashAmount,
           });
           sold.push(sale);
         }
@@ -874,6 +976,7 @@ export default function SalesCashierPage() {
         quantity: isSingleItem ? receiptItems[0].quantity : totalQty,
         price: isSingleItem ? receiptItems[0].price : undefined,
         paymentMethod: currentPayment,
+        cashSplitAmount: isSplitPayment ? splitCashTotal : undefined,
         branchName: selectedBranchName,
         subtotal: grossSaleAmount,
         cashbackUsed,
@@ -907,6 +1010,7 @@ export default function SalesCashierPage() {
       barcodeRef.current?.focus();
       void refreshTodaySalesTotal();
       void loadRecentSaleGroups();
+      void refreshShiftCashSummary();
     } catch (error: unknown) {
       toast.error(t("Xatolik"), extractErrorMessage(error, t("Saqlab bo'lmadi")));
     } finally {
@@ -918,7 +1022,16 @@ export default function SalesCashierPage() {
   useEffect(() => {
     void refreshTodaySalesTotal();
     void loadRecentSaleGroups();
+    void refreshShiftCashSummary();
   }, [branchId]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void refreshShiftCashSummary();
+    }, 15000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="mx-auto flex h-full min-h-0 w-full max-w-[1440px] flex-col gap-2 overflow-hidden">
@@ -930,6 +1043,12 @@ export default function SalesCashierPage() {
           </p>
           <p className="mt-0.5 text-xs text-cocoa-600 md:text-sm">
             {t("Faol mijoz")}: <span className="font-semibold text-berry-700">{activeCustomer.label}</span>
+          </p>
+          <p className="mt-0.5 text-xs text-cocoa-600 md:text-sm">
+            {t("Joriy kassa")}:{" "}
+            <span className={`font-semibold ${(cashSummary?.currentCash ?? 0) < 0 ? "text-rose-700" : "text-emerald-700"}`}>
+              {formatMoney(cashSummary?.currentCash ?? 0)} so'm
+            </span>
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -1350,13 +1469,19 @@ export default function SalesCashierPage() {
             <button
               type="button"
               onClick={() => {
-                void loadCatalog();
+                void loadCatalog({ silent: false, useCacheFirst: true });
               }}
               className="w-full rounded-xl border border-cream-300 bg-white px-4 py-2 text-sm font-semibold text-cocoa-700 hover:bg-cream-100 sm:w-auto"
             >
-              {catalogLoading ? t("Yuklanmoqda...") : t("Yangilash")}
+              {catalogLoading || catalogSyncing ? t("Yangilanmoqda...") : t("Yangilash")}
             </button>
           </div>
+
+          {catalogSyncing && filteredCatalog.length > 0 && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              {t("Keshdan ko'rsatildi. Orqa fonda yangilanmoqda...")}
+            </div>
+          )}
 
           <div className="max-h-[52vh] overflow-auto rounded-2xl border border-cream-200 bg-white">
             <table className="min-w-full text-sm">
@@ -1370,7 +1495,7 @@ export default function SalesCashierPage() {
                 </tr>
               </thead>
               <tbody>
-                {catalogLoading ? (
+                {filteredCatalog.length === 0 && catalogLoading ? (
                   <tr>
                     <td colSpan={5} className="px-3 py-8 text-center text-cocoa-500">
                       {t("Yuklanmoqda...")}
@@ -1412,7 +1537,10 @@ export default function SalesCashierPage() {
 
       <Modal title={t("To'lov turi")} open={paymentOpen} onClose={() => setPaymentOpen(false)}>
         <div className="space-y-4">
-          <p className="text-sm text-cocoa-700">{t("To'lov turini tanlang")}</p>
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-cocoa-700">{t("To'lov turi")}</p>
+            <span className="text-sm font-bold text-cocoa-900">{formatMoney(cartTotal)} {t("so'm")}</span>
+          </div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {(["CASH", "CARD", "TRANSFER"] as PaymentMethod[]).map((method) => {
               const active = payment === method;
@@ -1424,6 +1552,7 @@ export default function SalesCashierPage() {
                     updateActiveCustomerSession((session) => ({
                       ...session,
                       payment: method,
+                      splitCashInput: "",
                     }))
                   }
                   className={`rounded-xl border px-3 py-2 text-sm font-semibold transition ${
@@ -1437,6 +1566,44 @@ export default function SalesCashierPage() {
               );
             })}
           </div>
+
+          {/* Split payment (CASH + CARD) */}
+          {payment === "CASH" && (() => {
+            const splitCash = parseMoneyInput(splitCashInput);
+            const cardPart = Math.max(0, cartTotal - splitCash);
+            const isSplit = splitCash > 0 && splitCash < cartTotal;
+            return (
+              <div className="rounded-xl border border-cream-200 bg-cream-50 p-3 space-y-2">
+                <div className="text-xs font-semibold text-cocoa-600">{t("Aralash to'lov (Naqd + Karta)")}</div>
+                <div className="flex items-center gap-2">
+                  <label className="shrink-0 text-xs text-cocoa-600 w-20">{t("Naqd:")}</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={splitCashInput ? formatDigitsWithSpaces(splitCashInput) : ""}
+                    onChange={(e) => {
+                      const raw = sanitizeMoneyInput(e.target.value);
+                      updateActiveCustomerSession((s) => ({ ...s, splitCashInput: raw }));
+                    }}
+                    placeholder={t("Masalan: 100 000")}
+                    className="flex-1 rounded-lg border border-cream-200 bg-white px-3 py-1.5 text-sm text-cocoa-900 focus:border-berry-400 focus:outline-none"
+                  />
+                </div>
+                {isSplit && (
+                  <div className="flex items-center justify-between text-xs font-semibold">
+                    <span className="text-cocoa-600">{t("Karta:")}</span>
+                    <span className="text-blue-700">{formatMoney(cardPart)} {t("so'm")}</span>
+                  </div>
+                )}
+                {splitCash > 0 && splitCash >= cartTotal && (
+                  <div className="text-xs font-semibold text-green-700">
+                    {t("Qaytim:")} {formatMoney(splitCash - cartTotal)} {t("so'm")}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           <div className="flex flex-wrap justify-end gap-2">
             <button
               type="button"

@@ -2,6 +2,9 @@
 import type {
   Branch,
   BranchStock,
+  ShiftCashOutItem,
+  ShiftCashOutRecipient,
+  ShiftCashSummary,
   Product,
   Sale,
   SaleHistoryGroup,
@@ -22,6 +25,7 @@ type SellDTO = {
   branchId?: string;
   date?: string;
   saleGroupId?: string;
+  cashAmount?: number;
 };
 
 type UploadResult = { ok: true; photos: string[] };
@@ -30,6 +34,12 @@ type SaleGroupUpdateDTO = {
   items: Array<{ barcode: string; quantity: number }>;
   paymentMethod: PaymentMethod;
   date: string;
+};
+
+type ShiftCashOutCreateDTO = {
+  amount: number;
+  recipientType?: ShiftCashOutRecipient;
+  note?: string;
 };
 
 const SHIFT_FETCH_TIMEOUT_MS = 4500;
@@ -180,15 +190,27 @@ function centralProductAsStock(product: Product, branchId: string): BranchStock 
 
 const SHIFT_KEY = STORAGE_KEYS.shift ?? "shift";
 const SALES_KEY = STORAGE_KEYS.sales ?? "sales";
+const SHIFT_CASH_OUT_KEY = "shift_cash_out_items";
 
 const local = {
   async getShift(): Promise<Shift | null> {
     return getJSON<Shift | null>(SHIFT_KEY, null);
   },
 
-  async openShift(): Promise<Shift> {
+  async openShift(openingAmount?: number): Promise<Shift> {
     const existing = getJSON<Shift | null>(SHIFT_KEY, null);
-    if (existing?.status === "OPEN") return existing;
+    if (existing?.status === "OPEN") {
+      if (openingAmount !== undefined && Number(existing.openingAmount ?? 0) === 0) {
+        const updated: Shift = {
+          ...existing,
+          openingAmount,
+          updatedAt: new Date().toISOString(),
+        };
+        setJSON(SHIFT_KEY, updated);
+        return updated;
+      }
+      return existing;
+    }
 
     const now = new Date().toISOString();
     const shift: Shift = {
@@ -198,6 +220,7 @@ const local = {
       photos: [],
       branchId: "local",
       openedById: "local",
+      openingAmount: openingAmount ?? 0,
       createdAt: now,
       updatedAt: now,
     };
@@ -303,6 +326,63 @@ const local = {
     const byPaymentMethod = Array.from(methodMap.entries()).map(([method, stats]) => ({ method, ...stats }));
     const shiftWithMeta: ShiftWithMeta = { ...shift, branch: { id: shift.branchId, name: "Local Branch" }, openedBy: { id: shift.openedById, username: "local" } };
     return { shift: shiftWithMeta, totalAmount: groups.reduce((s, g) => s + g.total, 0), totalGroups: groups.length, byPaymentMethod, groups };
+  },
+
+  async getShiftCashSummary(): Promise<ShiftCashSummary> {
+    const shift = getJSON<Shift | null>(SHIFT_KEY, null);
+    if (!shift || shift.status !== "OPEN") throw new Error("Smena topilmadi");
+
+    const sales = getJSON<Sale[]>(SALES_KEY, []).filter(
+      (sale) =>
+        sale.branchId === shift.branchId &&
+        sale.createdById === shift.openedById &&
+        sale.date === shift.date &&
+        sale.paymentMethod === "CASH"
+    );
+    const cashSalesTotal = sales.reduce(
+      (sum, sale) => sum + Number(sale.price || 0) * Number(sale.quantity || 0),
+      0
+    );
+
+    const allCashOuts = getJSON<Array<ShiftCashOutItem & { shiftId: string }>>(SHIFT_CASH_OUT_KEY, []);
+    const cashOuts = allCashOuts.filter((item) => item.shiftId === shift.id);
+    const cashOutTotal = cashOuts.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const openingAmount = Number(shift.openingAmount ?? 0);
+
+    return {
+      shiftId: shift.id,
+      shiftDate: shift.date,
+      openingAmount,
+      cashSalesTotal,
+      cashOutTotal,
+      currentCash: openingAmount + cashSalesTotal - cashOutTotal,
+      warnings: openingAmount + cashSalesTotal - cashOutTotal < 0 ? ["NEGATIVE_CASH"] : [],
+      cashOuts: cashOuts
+        .slice()
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .map(({ shiftId: _ignored, ...rest }) => rest),
+    };
+  },
+
+  async addShiftCashOut(dto: ShiftCashOutCreateDTO) {
+    if (!Number.isFinite(dto.amount) || dto.amount <= 0) throw new Error("Summa noto'g'ri");
+    const shift = getJSON<Shift | null>(SHIFT_KEY, null);
+    if (!shift || shift.status !== "OPEN") throw new Error("Smena topilmadi");
+
+    const allCashOuts = getJSON<Array<ShiftCashOutItem & { shiftId: string }>>(SHIFT_CASH_OUT_KEY, []);
+    const entry: ShiftCashOutItem & { shiftId: string } = {
+      id: safeId("shift_cash_out"),
+      shiftId: shift.id,
+      amount: Math.round(dto.amount),
+      recipientType: dto.recipientType ?? "OTHER",
+      note: dto.note?.trim() || null,
+      createdAt: new Date().toISOString(),
+      createdBy: { id: shift.openedById, username: "local" },
+    };
+
+    setJSON(SHIFT_CASH_OUT_KEY, [entry, ...allCashOuts]);
+    const summary = await local.getShiftCashSummary();
+    return { ok: true, item: entry, summary };
   },
 
   async branchStock(branchId?: string): Promise<BranchStock[]> {
@@ -708,6 +788,17 @@ const api = {
   },
   async getShiftReport(shiftId: string): Promise<ShiftReport> {
     return apiFetch<ShiftReport>(`/sales/shifts/${encodeURIComponent(shiftId)}/report`);
+  },
+  async getShiftCashSummary(): Promise<ShiftCashSummary> {
+    return apiFetch<ShiftCashSummary>("/sales/shift/cash", {
+      timeoutMs: SHIFT_FETCH_TIMEOUT_MS,
+    });
+  },
+  async addShiftCashOut(dto: ShiftCashOutCreateDTO) {
+    return apiFetch<{ ok: true; item: ShiftCashOutItem; summary: ShiftCashSummary }>(
+      "/sales/shift/cash/out",
+      { method: "POST", body: JSON.stringify(dto) }
+    );
   },
 };
 
