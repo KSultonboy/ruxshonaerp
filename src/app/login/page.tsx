@@ -27,7 +27,7 @@ export default function LoginPage() {
       const authUser = await login(username.trim(), password);
 
       if (authUser.role === "SALES" || authUser.role === "MANAGER") {
-        router.replace("/sales/open-shift");
+        router.replace("/sales/sell");
       } else if (authUser.role === "PRODUCTION") {
         router.replace("/production/entry");
       } else {

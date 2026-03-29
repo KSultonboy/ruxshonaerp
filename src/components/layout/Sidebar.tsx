@@ -259,10 +259,9 @@ function getGroupsForRole(
     label: t("Ishlab chiqarish"),
     icon: "warehouse",
     items: [
+      { href: "/production/entry", label: t("Ishlab chiqarish kiritish"), icon: "add" },
       { href: "/warehouse", label: t("Markaziy ombor"), icon: "warehouse" },
-      { href: "/production/recipes", label: t("Retseptlar"), icon: "categories" },
-      { href: "/production/orders", label: t("Ishlab chiqarish"), icon: "add" },
-      { href: "/production/history", label: t("Ombor harakati"), icon: "report" },
+      { href: "/production/history", label: t("Tarix"), icon: "report" },
     ],
   };
 

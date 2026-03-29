@@ -10,6 +10,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { getDesktopVersion, isTauriDesktop } from "@/lib/desktop-updater";
 import { setDesktopFullscreen } from "@/lib/desktop-window";
+import { clearStoredAuth } from "@/lib/auth-store";
 
 const DESKTOP_VERSION_KEY = "ruxshona.desktop.version";
 const DESKTOP_VERSION_RELOAD_KEY = "ruxshona.desktop.version.reloaded";
@@ -29,6 +30,8 @@ async function clearIndexedDbDatabase(name: string) {
 }
 
 async function clearDesktopRuntimeData() {
+  clearStoredAuth();
+
   const keepLocalKeys = new Set([DESKTOP_VERSION_KEY, DESKTOP_VERSION_PURGED_KEY]);
   const localKeys: string[] = [];
   for (let i = 0; i < window.localStorage.length; i += 1) {
@@ -42,6 +45,16 @@ async function clearDesktopRuntimeData() {
   }
 
   window.sessionStorage.clear();
+
+  if (typeof document !== "undefined" && document.cookie) {
+    const cookieNames = document.cookie
+      .split(";")
+      .map((item) => item.trim().split("=")[0])
+      .filter(Boolean);
+    for (const name of cookieNames) {
+      document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+    }
+  }
 
   if ("caches" in window) {
     try {
@@ -69,6 +82,15 @@ async function clearDesktopRuntimeData() {
       // noop
     }
   }
+
+  if ("serviceWorker" in navigator) {
+    try {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.unregister()));
+    } catch {
+      // noop
+    }
+  }
 }
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -80,7 +102,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const { t } = useI18n();
   const isLogin = pathname === "/login";
-  const isOpenShift = pathname === "/sales/open-shift";
   const isCashier = pathname === "/sales/cashier";
   const isLogisticsCashier = pathname === "/logistics/cashier";
 
@@ -89,7 +110,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     if (loading) return;
     if (!user && !isLogin) router.replace("/login");
     if (user && isLogin) {
-      if (user.role === "SALES" || user.role === "MANAGER") router.replace("/sales/open-shift");
+      if (user.role === "SALES" || user.role === "MANAGER") router.replace("/sales/sell");
       else router.replace("/");
     }
   }, [loading, user, isLogin, router]);
@@ -174,7 +195,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     void warmup();
   }, [isLogin, loading, router, user]);
 
-  const showShell = !isLogin && !isOpenShift && !isCashier && !isLogisticsCashier;
+  const showShell = !isLogin && !isCashier && !isLogisticsCashier;
   const showLoading = SERVICE_MODE === "api" && loading && !isLogin;
   const showBlock = SERVICE_MODE === "api" && !user && !isLogin;
 
@@ -203,9 +224,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         ) : isCashier || isLogisticsCashier ? (
-          <div className="h-[100dvh] overflow-hidden p-2 sm:p-3 lg:p-4">{children}</div>
-        ) : isOpenShift ? (
-          <>{children}</>
+          <div className="h-[100dvh] overflow-y-auto p-2 md:overflow-hidden sm:p-3 lg:p-4">{children}</div>
         ) : (
           <div className="flex min-h-screen items-center justify-center px-6 py-12">{children}</div>
         )}

@@ -1034,7 +1034,7 @@ export default function SalesCashierPage() {
   }, []);
 
   return (
-    <div className="mx-auto flex h-full min-h-0 w-full max-w-[1440px] flex-col gap-2 overflow-hidden">
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-[1440px] flex-col gap-2 overflow-y-auto md:overflow-hidden">
       <div className="flex flex-wrap items-end justify-between gap-1.5">
         <div>
           <h1 className="font-display text-xl font-semibold text-cocoa-900 sm:text-2xl md:text-[30px]">{t("Kassa")}</h1>
