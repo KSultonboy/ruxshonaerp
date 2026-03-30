@@ -270,6 +270,8 @@ export default function SalesCashierPage() {
   const [recentSaleGroups, setRecentSaleGroups] = useState<SaleHistoryGroup[]>([]);
   const [historyActionBusyId, setHistoryActionBusyId] = useState<string | null>(null);
   const [editingHistoryGroup, setEditingHistoryGroup] = useState<SaleHistoryGroup | null>(null);
+  const [shiftCheckLoading, setShiftCheckLoading] = useState(true);
+  const [shiftIsOpen, setShiftIsOpen] = useState(false);
   const [lastSale, setLastSale] = useState<SaleReceiptData | null>(null);
   const [documentNo] = useState(
     () => `KASSA-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(Math.random() * 9000) + 1000}`
@@ -302,6 +304,26 @@ export default function SalesCashierPage() {
       active = false;
     };
   }, [branchId]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      setShiftCheckLoading(true);
+      try {
+        const shift = await salesService.getShift();
+        if (!active) return;
+        setShiftIsOpen(shift?.status === "OPEN");
+      } catch {
+        if (!active) return;
+        setShiftIsOpen(false);
+      } finally {
+        if (active) setShiftCheckLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -1020,21 +1042,53 @@ export default function SalesCashierPage() {
   }
 
   useEffect(() => {
+    if (!shiftIsOpen) return;
     void refreshTodaySalesTotal();
     void loadRecentSaleGroups();
     void refreshShiftCashSummary();
-  }, [branchId]);
+  }, [branchId, shiftIsOpen]);
 
   useEffect(() => {
+    if (!shiftIsOpen) return;
     const timer = window.setInterval(() => {
       void refreshShiftCashSummary();
     }, 15000);
     return () => window.clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [shiftIsOpen]);
+
+  if (shiftCheckLoading) {
+    return <div className="grid min-h-[55vh] place-items-center text-sm text-cocoa-500">{t("Smena holati tekshirilmoqda...")}</div>;
+  }
+
+  if (!shiftIsOpen) {
+    return (
+      <div className="grid min-h-[55vh] place-items-center px-4">
+        <div className="w-full max-w-md rounded-2xl border border-cream-200 bg-white p-6 text-center shadow-card">
+          <h2 className="text-xl font-bold text-cocoa-900">{t("Smena ochilmagan")}</h2>
+          <p className="mt-2 text-sm text-cocoa-600">{t("Kassaga kirish uchun avval Smena bo'limidan smena oching.")}</p>
+          <div className="mt-5 grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => router.push("/sales/shift?needOpen=1")}
+              className="rounded-xl bg-berry-700 px-4 py-2 text-sm font-semibold text-cream-50 hover:bg-berry-800"
+            >
+              {t("Smena sahifasi")}
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push("/sales/sell")}
+              className="rounded-xl border border-cream-300 bg-white px-4 py-2 text-sm font-semibold text-cocoa-700 hover:bg-cream-100"
+            >
+              {t("Orqaga")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="mx-auto flex h-full min-h-0 w-full max-w-[1440px] flex-col gap-2 overflow-y-auto md:overflow-hidden">
+    <div className="mx-auto flex h-auto min-h-0 w-full max-w-[1440px] flex-col gap-2 overflow-y-auto md:h-full md:overflow-hidden">
       <div className="flex flex-wrap items-end justify-between gap-1.5">
         <div>
           <h1 className="font-display text-xl font-semibold text-cocoa-900 sm:text-2xl md:text-[30px]">{t("Kassa")}</h1>
@@ -1076,7 +1130,7 @@ export default function SalesCashierPage() {
       </div>
 
       <div className="grid min-h-0 flex-1 gap-2 md:grid-cols-[minmax(0,1fr)_220px] xl:grid-cols-[minmax(0,1fr)_240px]">
-        <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-cream-200 bg-white shadow-card">
+        <section className="flex h-auto min-h-0 min-w-0 flex-col overflow-visible rounded-2xl border border-cream-200 bg-white shadow-card md:h-full md:overflow-hidden">
           <div className="grid gap-2 border-b border-cream-200 bg-cream-50 p-2.5 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.8fr)_220px] 2xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.8fr)_240px]">
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cocoa-500 md:text-xs">
@@ -1113,7 +1167,7 @@ export default function SalesCashierPage() {
           </div>
 
           <div className="border-b border-cream-200 p-2.5">
-            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_88px_104px] md:grid-cols-[minmax(0,1fr)_96px_116px]">
+            <div className="grid grid-cols-[minmax(0,1fr)_104px] gap-2 sm:grid-cols-[minmax(0,1fr)_88px_104px] md:grid-cols-[minmax(0,1fr)_96px_116px]">
               <input
                 ref={barcodeRef}
                 value={barcode}
@@ -1126,7 +1180,7 @@ export default function SalesCashierPage() {
                 }}
                 disabled={Boolean(pendingItem)}
                 placeholder={t("Barcode ni skan qiling")}
-                className="flex-1 rounded-xl border border-cream-300 px-2 py-2 text-xs text-cocoa-900 outline-none ring-berry-300 transition focus:ring-2 md:text-sm"
+                className="col-span-2 min-w-0 rounded-xl border border-cream-300 px-2 py-2 text-xs text-cocoa-900 outline-none ring-berry-300 transition focus:ring-2 sm:col-span-1 md:text-sm"
               />
               <input
                 ref={quantityRef}
@@ -1146,7 +1200,7 @@ export default function SalesCashierPage() {
                 placeholder={pendingItem ? t("Miqdor") : t("Avval barcode ni skan qiling")}
                 inputMode="decimal"
                 disabled={!pendingItem}
-                className="w-full rounded-xl border border-cream-300 px-2 py-2 text-[11px] text-cocoa-900 outline-none ring-berry-300 transition focus:ring-2 md:text-xs"
+                className="w-full min-w-0 rounded-xl border border-cream-300 px-2 py-2 text-[11px] text-cocoa-900 outline-none ring-berry-300 transition focus:ring-2 md:text-xs"
               />
               <button
                 type="button"
@@ -1165,7 +1219,7 @@ export default function SalesCashierPage() {
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-auto">
+          <div className="max-h-[34vh] overflow-auto md:min-h-0 md:max-h-none md:flex-1">
             <table className="min-w-full text-[11px] md:text-xs">
               <thead className="sticky top-0 z-10 bg-cream-100 text-[10px] uppercase tracking-wide text-cocoa-600">
                 <tr>
@@ -1253,12 +1307,12 @@ export default function SalesCashierPage() {
           </div>
 
           <div className="border-t border-cream-200 bg-cream-50 p-2">
-          <div className="grid gap-2 md:grid-cols-[1fr_auto_auto]">
+          <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-[1fr_auto_auto]">
             <button
               type="button"
               onClick={openSearchModal}
               disabled={Boolean(pendingItem)}
-                className="h-11 rounded-xl border border-cream-300 bg-white px-3 text-base font-bold text-cocoa-700 hover:bg-cream-100"
+                className="h-11 rounded-xl border border-cream-300 bg-white px-3 text-base font-bold text-cocoa-700 hover:bg-cream-100 sm:col-span-2 md:col-span-1"
               >
                 {t("Qidiruv (F3)")}
               </button>
