@@ -13,7 +13,6 @@ import { expenseItemsService } from "@/services/expenseItems";
 import { productsService } from "@/services/products";
 import { warehouseService } from "@/services/warehouse";
 import { getReceiptTemplateSettings } from "@/services/receipt-template";
-import { apiFetch } from "@/services/http";
 import JsBarcode from "jsbarcode";
 import { useForm, Controller, useWatch } from "react-hook-form";
 import { z } from "zod";
@@ -26,16 +25,6 @@ type EntryForm = {
     quantity: string;
     printMode: "PER_ITEM" | "SINGLE" | "NONE";
     note?: string;
-};
-
-type PublicProductLite = {
-    id: string;
-    name: string;
-    barcode?: string | null;
-    categoryId: string;
-    price?: number | null;
-    salePrice?: number | null;
-    unit?: { id: string } | null;
 };
 
 function excludeExpenseLinkedProducts(products: Product[], expenseItems: { productId?: string | null }[]) {
@@ -126,48 +115,14 @@ export default function ProductionEntryPage() {
                 shouldValidate: true,
             });
             return;
-        } catch (productError) {
-            try {
-                const publicProducts = await apiFetch<PublicProductLite[]>("/public/products", { skipAuth: true });
-                const now = new Date().toISOString();
-                const nextProducts: Product[] = publicProducts.map((item) => ({
-                    id: item.id,
-                    name: item.name,
-                    barcode: item.barcode ?? undefined,
-                    type: "PRODUCT",
-                    categoryId: item.categoryId ?? "PUBLIC",
-                    unitId: item.unit?.id ?? "PUBLIC",
-                    price: item.price ?? undefined,
-                    salePrice: item.salePrice ?? item.price ?? undefined,
-                    shopPrice: undefined,
-                    images: [],
-                    active: true,
-                    stock: 0,
-                    minStock: 0,
-                    labourPrice: 0,
-                    createdAt: now,
-                    updatedAt: now,
-                }));
-
-                setProducts(nextProducts);
-                setValue("productId", nextProducts[0]?.id ?? "", { shouldValidate: true });
-                toast.error(
-                    t("Diqqat"),
-                    t("Mahsulotlar public ro'yxatdan yuklandi. Ba'zi ma'lumotlar cheklangan bo'lishi mumkin.")
-                );
-                return;
-            } catch (fallbackError: unknown) {
-                const fallbackMessage =
-                    fallbackError instanceof Error
-                        ? fallbackError.message
-                        : productError instanceof Error
-                            ? productError.message
-                            : t("Mahsulotlar ro'yxatini yuklab bo'lmadi");
-
-                setProducts([]);
-                setValue("productId", "", { shouldValidate: true });
-                setLoadError(fallbackMessage);
-            }
+        } catch (productError: unknown) {
+            const message =
+                productError instanceof Error
+                    ? productError.message
+                    : t("Mahsulotlar ro'yxatini yuklab bo'lmadi");
+            setProducts([]);
+            setValue("productId", "", { shouldValidate: true });
+            setLoadError(message);
         } finally {
             setLoading(false);
         }

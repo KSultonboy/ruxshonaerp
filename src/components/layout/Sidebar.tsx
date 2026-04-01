@@ -274,6 +274,7 @@ function getGroupsForRole(
         items: [
           { href: "/sales/sell", label: t("Kassaga kirish"), icon: "orders" },
           { href: "/sales/cashier", label: t("Kassa"), icon: "cash" },
+          { href: "/sales/orders", label: t("Buyurtmalar"), icon: "orders" },
           { href: "/sales/stock", label: t("Omborxona"), icon: "warehouse" },
           { href: "/sales/receive", label: t("Qabul qilish"), icon: "transfer" },
           { href: "/sales/returns", label: t("Vazvrat"), icon: "return" },

@@ -77,6 +77,7 @@ export default function SalesShiftPage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [showCloseModal, setShowCloseModal] = useState(false);
+  const [openingShift, setOpeningShift] = useState(false);
   const [cashSummary, setCashSummary] = useState<ShiftCashSummary | null>(null);
   const [cashOutAmount, setCashOutAmount] = useState("");
   const [cashOutNote, setCashOutNote] = useState("");
@@ -91,6 +92,7 @@ export default function SalesShiftPage() {
   const [dayGroups, setDayGroups] = useState(0);
   const [dayByMethod, setDayByMethod] = useState<MethodStat[]>([]);
   const [closeWarningShown, setCloseWarningShown] = useState(false);
+  const [openWarningShown, setOpenWarningShown] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -153,6 +155,13 @@ export default function SalesShiftPage() {
     setCloseWarningShown(true);
   }, [closeWarningShown, searchParams, t, toast]);
 
+  useEffect(() => {
+    if (openWarningShown) return;
+    if (searchParams.get("needOpen") !== "1") return;
+    toast.error(t("Kassaga kirishdan oldin smena oching"));
+    setOpenWarningShown(true);
+  }, [openWarningShown, searchParams, t, toast]);
+
   const photoCount = shift?.photos?.length ?? 0;
   const isOpen = shift?.status === "OPEN";
   const closedShiftsToday = todayShifts.filter((s) => s.status === "CLOSED");
@@ -178,6 +187,19 @@ export default function SalesShiftPage() {
     toast.success(t("Smena yopildi"));
     await logout();
     router.replace("/login");
+  }
+
+  async function handleOpenShift() {
+    setOpeningShift(true);
+    try {
+      await salesService.openShift();
+      toast.success(t("Smena ochildi"));
+      await refresh();
+    } catch (e: any) {
+      toast.error(t("Xatolik"), e?.message || t("Smenani ochib bo'lmadi"));
+    } finally {
+      setOpeningShift(false);
+    }
   }
 
   async function handleAddCashOut() {
@@ -533,9 +555,19 @@ export default function SalesShiftPage() {
         {/* Amallar */}
         <Card>
           <div className="flex flex-wrap gap-3">
+            {!isOpen && (
+              <Button onClick={() => void handleOpenShift()} disabled={openingShift}>
+                {openingShift ? t("Ochilmoqda...") : t("Smena ochish")}
+              </Button>
+            )}
             {isOpen && (
               <Button variant="danger" onClick={() => setShowCloseModal(true)}>
                 {t("Smena yopish")}
+              </Button>
+            )}
+            {isOpen && (
+              <Button onClick={() => router.push("/sales/cashier")}>
+                {t("Kassaga kirish")}
               </Button>
             )}
             {shift && (

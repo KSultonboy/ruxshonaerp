@@ -684,7 +684,40 @@ const local = {
 
     return { ok: true, deletedCount: target.length, groupId };
   },
+  async listShopOrders(_status?: string): Promise<ShopOrder[]> {
+    return [];
+  },
+  async createShopOrder(_data: {
+    description: string;
+    totalAmount: number;
+    depositAmount: number;
+    customerName?: string;
+    phone?: string;
+    note?: string;
+  }): Promise<ShopOrder> {
+    throw new Error("Not available in offline mode");
+  },
+  async payShopOrder(_id: string, _amount: number): Promise<ShopOrder> {
+    throw new Error("Not available in offline mode");
+  },
+  async cancelShopOrder(_id: string): Promise<ShopOrder> {
+    throw new Error("Not available in offline mode");
+  },
 };
+
+export interface ShopOrder {
+  id: string;
+  description: string;
+  customerName: string | null;
+  phone: string | null;
+  totalAmount: number;
+  depositAmount: number;
+  paidAmount: number;
+  status: "ACTIVE" | "COMPLETED" | "CANCELLED";
+  note: string | null;
+  createdAt: string;
+  createdBy: { id: string; username: string } | null;
+}
 
 const api = {
   async getShift(): Promise<Shift | null> {
@@ -799,6 +832,34 @@ const api = {
       "/sales/shift/cash/out",
       { method: "POST", body: JSON.stringify(dto) }
     );
+  },
+  async listShopOrders(status?: string): Promise<ShopOrder[]> {
+    const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+    return apiFetch<ShopOrder[]>(`/sales/shop-orders${qs}`);
+  },
+  async createShopOrder(data: {
+    description: string;
+    totalAmount: number;
+    depositAmount: number;
+    customerName?: string;
+    phone?: string;
+    note?: string;
+  }): Promise<ShopOrder> {
+    return apiFetch<ShopOrder>("/sales/shop-orders", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+  async payShopOrder(id: string, amount: number): Promise<ShopOrder> {
+    return apiFetch<ShopOrder>(`/sales/shop-orders/${encodeURIComponent(id)}/pay`, {
+      method: "POST",
+      body: JSON.stringify({ amount }),
+    });
+  },
+  async cancelShopOrder(id: string): Promise<ShopOrder> {
+    return apiFetch<ShopOrder>(`/sales/shop-orders/${encodeURIComponent(id)}/cancel`, {
+      method: "POST",
+    });
   },
 };
 

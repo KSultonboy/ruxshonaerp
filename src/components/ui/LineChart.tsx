@@ -19,12 +19,13 @@ type Props = {
 
 type Point = { x: number; y: number };
 
-const VIEWBOX_WIDTH = 160;
-const VIEWBOX_HEIGHT = 80;
-const LEFT_GUTTER = 20;
-const RIGHT_GUTTER = 10;
-const TOP_GUTTER = 10;
-const BOTTOM_GUTTER = 15;
+// Viewbox coordinate space — SVG uses these for path/line math only (no text)
+const VW = 160;
+const VH = 80;
+const LG = 20;  // left gutter (Y-axis label zone)
+const RG = 8;   // right gutter
+const TG = 8;   // top gutter
+const BG = 14;  // bottom gutter (X-axis label zone)
 const Y_TICKS = 5;
 const SMOOTHING = 0.2;
 
@@ -99,13 +100,17 @@ function buildTickIndices(length: number) {
   return Array.from(ticks).sort((a, b) => a - b);
 }
 
-export default function LineChart({ labels, series, height = 300, emptyLabel = "Ma'lumot yo'q" }: Props) {
+// Convert SVG coords → % of container (for HTML overlays)
+function xPct(svgX: number) { return (svgX / VW) * 100; }
+function yPct(svgY: number) { return (svgY / VH) * 100; }
+
+export default function LineChart({ labels, series, height = 260, emptyLabel = "Ma'lumot yo'q" }: Props) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
   const hasData = labels.length > 0 && series.some((s) => s.values.some((v) => Math.abs(v) > 0));
-  const chartWidth = VIEWBOX_WIDTH - LEFT_GUTTER - RIGHT_GUTTER;
-  const chartHeight = VIEWBOX_HEIGHT - TOP_GUTTER - BOTTOM_GUTTER;
+  const chartWidth = VW - LG - RG;
+  const chartHeight = VH - TG - BG;
   const span = Math.max(labels.length - 1, 1);
 
   const yAxis = useMemo(() => {
@@ -118,7 +123,7 @@ export default function LineChart({ labels, series, height = 300, emptyLabel = "
     const step = range / (Y_TICKS - 1);
     const ticks = Array.from({ length: Y_TICKS }, (_, idx) => {
       const value = scaleMax - step * idx;
-      const y = TOP_GUTTER + (chartHeight / (Y_TICKS - 1)) * idx;
+      const y = TG + (chartHeight / (Y_TICKS - 1)) * idx;
       return { value, y };
     });
     return { scaleMin, scaleMax, ticks };
@@ -126,7 +131,7 @@ export default function LineChart({ labels, series, height = 300, emptyLabel = "
 
   const scaleMax = yAxis.scaleMax;
   const scaleRange = scaleMax || 1;
-  const baselineY = TOP_GUTTER + (scaleMax / scaleRange) * chartHeight;
+  const baselineY = TG + (scaleMax / scaleRange) * chartHeight;
 
   const xTickIndices = useMemo(() => buildTickIndices(labels.length), [labels.length]);
   const xTicks = useMemo(() => {
@@ -135,7 +140,7 @@ export default function LineChart({ labels, series, height = 300, emptyLabel = "
       .map((idx) => ({
         idx,
         label: formatXAxisLabel(labels[idx] ?? ""),
-        x: LEFT_GUTTER + (idx / span) * chartWidth,
+        x: LG + (idx / span) * chartWidth,
       }))
       .filter((tick) => tick.label);
   }, [chartWidth, labels, span, xTickIndices]);
@@ -144,58 +149,50 @@ export default function LineChart({ labels, series, height = 300, emptyLabel = "
     if (!hasData) return [];
     return series.map((s) => {
       const points = s.values.map((value, idx) => {
-        const x = LEFT_GUTTER + (idx / span) * chartWidth;
-        const y = TOP_GUTTER + ((scaleMax - value) / scaleRange) * chartHeight;
+        const x = LG + (idx / span) * chartWidth;
+        const y = TG + ((scaleMax - value) / scaleRange) * chartHeight;
         return { x, y };
       });
       const path = buildSmoothPath(points);
       const areaPath =
         points.length > 1 ? `${path} L ${points[points.length - 1].x} ${baselineY} L ${points[0].x} ${baselineY} Z` : "";
-      return {
-        ...s,
-        points,
-        path,
-        areaPath,
-        gradientId: `line-fill-${safeId(s.id)}`,
-      };
+      return { ...s, points, path, areaPath, gradientId: `line-fill-${safeId(s.id)}` };
     });
   }, [baselineY, chartHeight, chartWidth, hasData, scaleMax, scaleRange, series, span]);
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!svgRef.current || !hasData) return;
     const rect = svgRef.current.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * VIEWBOX_WIDTH;
-    const chartX = x - LEFT_GUTTER;
+    const x = ((e.clientX - rect.left) / rect.width) * VW;
+    const chartX = x - LG;
     const idx = Math.round((chartX / chartWidth) * span);
-    if (idx >= 0 && idx < labels.length) {
-      setHoverIdx(idx);
-    } else {
-      setHoverIdx(null);
-    }
+    if (idx >= 0 && idx < labels.length) setHoverIdx(idx);
+    else setHoverIdx(null);
   };
 
   const handleMouseLeave = () => setHoverIdx(null);
 
   if (!hasData) {
     return (
-      <div
-        style={{ height }}
-        className="flex items-center justify-center rounded-3xl border border-cream-200 bg-cream-50/50 text-sm text-cocoa-400"
-      >
+      <div style={{ height }} className="w-full flex items-center justify-center rounded-3xl border border-cream-200 bg-cream-50/50 text-sm text-cocoa-400">
         {emptyLabel}
       </div>
     );
   }
 
+  const hoverX = hoverIdx !== null ? LG + (hoverIdx / span) * chartWidth : null;
+
   return (
     <div
       style={{ height }}
-      className="group relative w-full overflow-visible rounded-3xl border border-cream-100 bg-white p-4 shadow-sm transition hover:shadow-md"
+      className="group relative w-full overflow-hidden rounded-3xl border border-cream-100 bg-white shadow-sm transition hover:shadow-md"
     >
+      {/* ── SVG: paths, grid lines, hover guide (no text) ── */}
       <svg
         ref={svgRef}
-        viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
-        className="h-full w-full overflow-visible selection:bg-none"
+        viewBox={`0 0 ${VW} ${VH}`}
+        preserveAspectRatio="none"
+        className="absolute inset-0 h-full w-full"
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
       >
@@ -208,15 +205,13 @@ export default function LineChart({ labels, series, height = 300, emptyLabel = "
           ))}
         </defs>
 
-        {/* Grid Lines */}
+        {/* Grid lines */}
         <g className="opacity-40">
           {yAxis.ticks.map((tick, idx) => (
             <line
-              key={`grid-${idx}`}
-              x1={LEFT_GUTTER}
-              x2={VIEWBOX_WIDTH - RIGHT_GUTTER}
-              y1={tick.y}
-              y2={tick.y}
+              key={idx}
+              x1={LG} x2={VW - RG}
+              y1={tick.y} y2={tick.y}
               stroke="#E5E7EB"
               strokeWidth="0.5"
               strokeDasharray={idx === yAxis.ticks.length - 1 ? "0" : "1 1"}
@@ -224,100 +219,74 @@ export default function LineChart({ labels, series, height = 300, emptyLabel = "
           ))}
         </g>
 
-        {/* X-Axis Labels */}
-        <g>
-          {xTicks.map((tick) => (
-            <text
-              key={`x-label-${tick.idx}`}
-              x={tick.x}
-              y={VIEWBOX_HEIGHT - 4}
-              textAnchor="middle"
-              fontSize="3"
-              fontWeight="500"
-              fill="#9CA3AF"
-            >
-              {tick.label}
-            </text>
-          ))}
-        </g>
-
-        {/* Y-Axis Labels */}
-        <g>
-          {yAxis.ticks.map((tick, idx) => (
-            <text
-              key={`y-label-${idx}`}
-              x={LEFT_GUTTER - 4}
-              y={tick.y}
-              textAnchor="end"
-              dominantBaseline="middle"
-              fontSize="3"
-              fontWeight="500"
-              fill="#9CA3AF"
-            >
-              {formatCompactValue(tick.value)}
-            </text>
-          ))}
-        </g>
-
-        {/* Data Series */}
+        {/* Series */}
         {chartSeries.map((s) => (
-          <g key={s.id} className="transition-opacity duration-300">
+          <g key={s.id}>
             {s.areaPath && <path d={s.areaPath} fill={`url(#${s.gradientId})`} />}
             {s.path && (
-              <path
-                d={s.path}
-                fill="none"
-                stroke={s.color}
-                strokeWidth="1.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
+              <path d={s.path} fill="none" stroke={s.color} strokeWidth="1.2"
+                strokeLinecap="round" strokeLinejoin="round" />
             )}
-            {/* Highlight point on hover */}
             {hoverIdx !== null && s.points[hoverIdx] && (
-              <circle
-                cx={s.points[hoverIdx].x}
-                cy={s.points[hoverIdx].y}
-                r="1.8"
-                fill="white"
-                stroke={s.color}
-                strokeWidth="0.8"
-                className="drop-shadow-sm"
-              />
+              <circle cx={s.points[hoverIdx].x} cy={s.points[hoverIdx].y}
+                r="1.8" fill="white" stroke={s.color} strokeWidth="0.8" />
             )}
           </g>
         ))}
 
-        {/* Hover Interaction Guide */}
-        {hoverIdx !== null && (
-          <g>
-            <line
-              x1={LEFT_GUTTER + (hoverIdx / span) * chartWidth}
-              x2={LEFT_GUTTER + (hoverIdx / span) * chartWidth}
-              y1={TOP_GUTTER}
-              y2={baselineY}
-              stroke="#D1D5DB"
-              strokeWidth="0.5"
-              strokeDasharray="2 2"
-            />
-          </g>
+        {/* Hover guide line */}
+        {hoverX !== null && (
+          <line x1={hoverX} x2={hoverX} y1={TG} y2={baselineY}
+            stroke="#D1D5DB" strokeWidth="0.5" strokeDasharray="2 2" />
         )}
       </svg>
 
-      {/* Professional Tooltip */}
-      {hoverIdx !== null && (
+      {/* ── Y-axis labels (HTML, no stretch) ── */}
+      {yAxis.ticks.map((tick, idx) => (
         <div
-          className="pointer-events-none absolute z-50 min-w-[140px] -translate-x-1/2 rounded-xl border border-cream-200 bg-white p-2 shadow-xl animate-in fade-in zoom-in duration-150"
+          key={idx}
+          className="pointer-events-none absolute text-[10px] font-medium text-slate-400 leading-none"
           style={{
-            left: `${((LEFT_GUTTER + (hoverIdx / span) * chartWidth) / VIEWBOX_WIDTH) * 100}%`,
-            top: "10%"
+            top: `${yPct(tick.y)}%`,
+            left: `${xPct(0)}%`,
+            width: `${xPct(LG - 1)}%`,
+            transform: "translateY(-50%)",
+            textAlign: "right",
+          }}
+        >
+          {formatCompactValue(tick.value)}
+        </div>
+      ))}
+
+      {/* ── X-axis labels (HTML, no stretch) ── */}
+      {xTicks.map((tick) => (
+        <div
+          key={tick.idx}
+          className="pointer-events-none absolute text-[10px] font-medium text-slate-400 leading-none"
+          style={{
+            left: `${xPct(tick.x)}%`,
+            bottom: `${100 - yPct(VH)}%`,
+            transform: "translateX(-50%)",
+          }}
+        >
+          {tick.label}
+        </div>
+      ))}
+
+      {/* ── Tooltip (HTML) ── */}
+      {hoverIdx !== null && hoverX !== null && (
+        <div
+          className="pointer-events-none absolute z-50 min-w-[140px] -translate-x-1/2 rounded-xl border border-cream-200 bg-white p-2 shadow-xl"
+          style={{
+            left: `${xPct(hoverX)}%`,
+            top: "8%",
           }}
         >
           <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-cocoa-400">
             {labels[hoverIdx]}
           </div>
           <div className="space-y-1">
-            {series.map(s => (
+            {series.map((s) => (
               <div key={s.id} className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-1.5">
                   <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: s.color }} />

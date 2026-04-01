@@ -24,6 +24,15 @@ interface StatsOverview {
 interface TimeseriesPoint { start: string; end: string; value: number }
 interface SegmentRow { key: string; label: string; value: number }
 
+interface ShopBranchRow {
+  key: string;
+  label: string;
+  transfers: number;
+  returns: number;
+  payments: number;
+  debt: number;
+}
+
 interface BranchCash {
   branchId: string;
   branchName: string;
@@ -52,34 +61,39 @@ function fmtDate(iso: string) {
 
 // ─── Mini bar chart (pure CSS) ────────────────────────────────────────────────
 
-const BAR_AREA_H = 100; // px — faqat bar balandligi (label hisoblanmaydi)
-
 function BarChart({ points, color = "#8F1D1D" }: { points: TimeseriesPoint[]; color?: string }) {
   const max = Math.max(...points.map(p => p.value), 1);
-  const minWidth = Math.max(points.length * 28, 400);
   return (
-    <div className="overflow-x-auto">
-      <div className="flex items-end gap-[3px]" style={{ minWidth }}>
+    <div className="flex-1 flex flex-col min-h-0 gap-1">
+      {/* Bar area — fills all available height */}
+      <div className="flex-1 flex items-end gap-[3px] min-h-0">
         {points.map((p, i) => {
-          const barH = Math.max((p.value / max) * BAR_AREA_H, 2);
+          const pct = Math.max((p.value / max) * 100, 1.5);
           return (
-            <div key={i} className="flex flex-col items-center flex-1 group relative">
-              <div className="absolute z-10 hidden group-hover:flex flex-col items-center
-                              bg-slate-800 text-white text-[10px] rounded px-2 py-1 whitespace-nowrap shadow-lg pointer-events-none"
-                   style={{ bottom: barH + 20 }}>
+            <div key={i} className="flex-1 min-w-0 h-full flex flex-col justify-end group relative">
+              <div
+                className="absolute z-10 hidden group-hover:flex flex-col items-center
+                            bg-slate-800 text-white text-[10px] rounded px-2 py-1 whitespace-nowrap shadow-lg pointer-events-none"
+                style={{ bottom: `calc(${pct}% + 6px)`, left: "50%", transform: "translateX(-50%)" }}
+              >
                 <span>{fmtDate(p.start)}</span>
                 <span className="font-bold">{moneyUZS(p.value)}</span>
               </div>
               <div
                 className="w-full rounded-t-sm transition-all"
-                style={{ height: barH, background: color, opacity: p.value > 0 ? 0.85 : 0.2 }}
+                style={{ height: `${pct}%`, background: color, opacity: p.value > 0 ? 0.85 : 0.2 }}
               />
-              <span className="text-[9px] text-slate-400 truncate w-full text-center mt-0.5 leading-tight">
-                {fmtDate(p.start)}
-              </span>
             </div>
           );
         })}
+      </div>
+      {/* Label row — fixed below bars */}
+      <div className="flex gap-[3px] shrink-0">
+        {points.map((p, i) => (
+          <span key={i} className="flex-1 min-w-0 text-[8px] text-slate-400 truncate text-center leading-tight">
+            {fmtDate(p.start)}
+          </span>
+        ))}
       </div>
     </div>
   );
@@ -159,6 +173,7 @@ export default function Page() {
   const [expensesByCategory, setExpensesByCategory] = useState<SegmentRow[]>([]);
   const [branches, setBranches] = useState<BranchCash[]>([]);
   const [totalBranchCash, setTotalBranchCash] = useState(0);
+  const [shopBranchTable, setShopBranchTable] = useState<ShopBranchRow[]>([]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -185,17 +200,20 @@ export default function Page() {
 
     try {
       const [
-        statsRes,
-        chartRes,
-        topProductsRes,
-        expCatRes,
-        branchCashRes,
+        statsRes, chartRes, topProductsRes, expCatRes, branchCashRes,
+        tBranchRes, tShopRes, rBranchRes, rShopRes, pBranchRes, pShopRes,
       ] = await Promise.allSettled([
         apiFetch<StatsOverview>(`/stats/overview?${qs}`),
         apiFetch<{ points: TimeseriesPoint[] }>(`/reports/timeseries?${chartQs}`),
         apiFetch<SegmentRow[]>(`/reports/segments?metric=revenue&segmentBy=product&${qs}`),
         apiFetch<SegmentRow[]>(`/reports/segments?metric=expenses&segmentBy=category&${qs}`),
         apiFetch<BranchCash[]>(`/sales/all-branches-cash`),
+        apiFetch<SegmentRow[]>(`/reports/segments?metric=transfers&segmentBy=branch&${qs}`),
+        apiFetch<SegmentRow[]>(`/reports/segments?metric=transfers&segmentBy=shop&${qs}`),
+        apiFetch<SegmentRow[]>(`/reports/segments?metric=returns&segmentBy=branch&${qs}`),
+        apiFetch<SegmentRow[]>(`/reports/segments?metric=returns&segmentBy=shop&${qs}`),
+        apiFetch<SegmentRow[]>(`/reports/segments?metric=payments&segmentBy=branch&${qs}`),
+        apiFetch<SegmentRow[]>(`/reports/segments?metric=payments&segmentBy=shop&${qs}`),
       ]);
 
       if (statsRes.status === "fulfilled") setStats(statsRes.value);
@@ -205,6 +223,43 @@ export default function Page() {
       if (branchCashRes.status === "fulfilled") {
         setBranches(branchCashRes.value);
         setTotalBranchCash(branchCashRes.value.reduce((s, b) => s + b.currentCash, 0));
+      }
+
+      // Do'konlar/filiallar jadvali: branch + shop birlashtirish
+      {
+        function rows(res: PromiseSettledResult<unknown>): SegmentRow[] {
+          return res.status === "fulfilled" ? (res.value as SegmentRow[]) : [];
+        }
+        function toMap(list: SegmentRow[]): Map<string, SegmentRow> {
+          const m = new Map<string, SegmentRow>();
+          for (const r of list) {
+            const ex = m.get(r.key);
+            m.set(r.key, { key: r.key, label: r.label, value: (ex?.value ?? 0) + r.value });
+          }
+          return m;
+        }
+        function merge(a: Map<string, SegmentRow>, b: Map<string, SegmentRow>) {
+          const out = new Map(a);
+          b.forEach((v, k) => {
+            const ex = out.get(k);
+            out.set(k, { key: k, label: v.label, value: (ex?.value ?? 0) + v.value });
+          });
+          return out;
+        }
+
+        const tMap = merge(toMap(rows(tBranchRes)), toMap(rows(tShopRes)));
+        const rMap = merge(toMap(rows(rBranchRes)), toMap(rows(rShopRes)));
+        const pMap = merge(toMap(rows(pBranchRes)), toMap(rows(pShopRes)));
+
+        const allKeys = new Set([...tMap.keys(), ...rMap.keys(), ...pMap.keys()]);
+        const tableRows: ShopBranchRow[] = Array.from(allKeys).map(key => {
+          const label = tMap.get(key)?.label ?? rMap.get(key)?.label ?? pMap.get(key)?.label ?? key;
+          const transfers = tMap.get(key)?.value ?? 0;
+          const returns   = rMap.get(key)?.value ?? 0;
+          const payments  = pMap.get(key)?.value ?? 0;
+          return { key, label, transfers, returns, payments, debt: transfers - returns - payments };
+        }).sort((a, b) => b.transfers - a.transfers);
+        setShopBranchTable(tableRows);
       }
     } catch (e: any) {
       toast.error(t("Xatolik"), e?.message);
@@ -313,15 +368,15 @@ export default function Page() {
       </div>
 
       {/* ── 30-day chart + mini stats ── */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
+      <div className="grid gap-4 lg:grid-cols-3 items-stretch">
+        <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm flex flex-col">
+          <div className="mb-3 flex items-center justify-between shrink-0">
             <h2 className="text-sm font-bold text-slate-700">{t("30 kunlik sotuv dinamikasi")}</h2>
             <span className="text-xs text-slate-400">{t("Kunlik daromad")}</span>
           </div>
           {chartPoints.length > 0
             ? <BarChart points={chartPoints} color="#8F1D1D" />
-            : <div className="h-28 flex items-center justify-center text-sm text-slate-400">{loading ? t("Yuklanmoqda...") : t("Ma'lumot yo'q")}</div>
+            : <div className="flex-1 flex items-center justify-center text-sm text-slate-400">{loading ? t("Yuklanmoqda...") : t("Ma'lumot yo'q")}</div>
           }
         </div>
 
@@ -464,8 +519,8 @@ export default function Page() {
                 { label: t("Xarajatlar"), value: stats.expensesTotal, color: "bg-rose-500" },
                 { label: t("Vazvrat"), value: stats.returns, color: "bg-amber-400" },
               ].map(row => {
-                const max = Math.max(stats.revenue, 1);
-                const pct = Math.round((row.value / max) * 100);
+                const max = Math.max(stats.revenue, stats.expensesTotal, stats.returns, 1);
+                const pct = Math.min(Math.round((row.value / max) * 100), 100);
                 return (
                   <div key={row.label}>
                     <div className="mb-1 flex justify-between text-sm">
@@ -513,6 +568,99 @@ export default function Page() {
             <div className="py-8 text-center text-sm text-slate-400">{loading ? t("Yuklanmoqda...") : t("Ma'lumot yo'q")}</div>
           )}
         </div>
+      </div>
+
+      {/* ── Do'konlar / Filiallar jadvali ── */}
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <div>
+            <h2 className="text-sm font-bold text-slate-700">{t("Do'konlar va filiallar hisoboti")}</h2>
+            <p className="mt-0.5 text-xs text-slate-400">{t("Mahsulot, vazvrat, to'lov va qarz")}</p>
+          </div>
+          <span className="text-xs text-slate-400">{t("Tanlangan davr")}</span>
+        </div>
+
+        {shopBranchTable.length === 0 ? (
+          <div className="py-10 text-center text-sm text-slate-400">
+            {loading ? t("Yuklanmoqda...") : t("Ma'lumot yo'q")}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 text-left">
+                  <th className="px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500">{t("Filial / Do'kon")}</th>
+                  <th className="px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500 text-right">{t("Olib ketilgan")}</th>
+                  <th className="px-5 py-3 text-xs font-bold uppercase tracking-wider text-emerald-600 text-right">{t("Qaytarilgan")}</th>
+                  <th className="px-5 py-3 text-xs font-bold uppercase tracking-wider text-blue-600 text-right">{t("To'langan")}</th>
+                  <th className="px-5 py-3 text-xs font-bold uppercase tracking-wider text-rose-600 text-right">{t("Qarz")}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {shopBranchTable.map((row, i) => (
+                  <tr key={row.key} className={i % 2 === 0 ? "bg-white" : "bg-slate-50/50"}>
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500 shrink-0">
+                          {i + 1}
+                        </span>
+                        <span className="font-semibold text-slate-800">{row.label}</span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3.5 text-right font-semibold text-slate-800 tabular-nums">
+                      {moneyUZS(row.transfers)}
+                    </td>
+                    <td className="px-5 py-3.5 text-right font-semibold text-emerald-700 tabular-nums">
+                      {row.returns > 0 ? moneyUZS(row.returns) : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="px-5 py-3.5 text-right font-semibold text-blue-700 tabular-nums">
+                      {row.payments > 0 ? moneyUZS(row.payments) : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="px-5 py-3.5 text-right tabular-nums">
+                      <span className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-bold ${
+                        row.debt > 0
+                          ? "bg-rose-50 text-rose-700"
+                          : row.debt < 0
+                          ? "bg-emerald-50 text-emerald-700"
+                          : "bg-slate-100 text-slate-500"
+                      }`}>
+                        {row.debt > 0 ? "+" : ""}{moneyUZS(row.debt)}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              {shopBranchTable.length > 1 && (
+                <tfoot>
+                  <tr className="border-t-2 border-slate-200 bg-slate-50">
+                    <td className="px-5 py-3 text-xs font-bold uppercase tracking-wider text-slate-500">{t("Jami")}</td>
+                    <td className="px-5 py-3 text-right text-sm font-black text-slate-800 tabular-nums">
+                      {moneyUZS(shopBranchTable.reduce((s, r) => s + r.transfers, 0))}
+                    </td>
+                    <td className="px-5 py-3 text-right text-sm font-black text-emerald-700 tabular-nums">
+                      {moneyUZS(shopBranchTable.reduce((s, r) => s + r.returns, 0))}
+                    </td>
+                    <td className="px-5 py-3 text-right text-sm font-black text-blue-700 tabular-nums">
+                      {moneyUZS(shopBranchTable.reduce((s, r) => s + r.payments, 0))}
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      {(() => {
+                        const totalDebt = shopBranchTable.reduce((s, r) => s + r.debt, 0);
+                        return (
+                          <span className={`inline-flex items-center rounded-lg px-2.5 py-1 text-sm font-black ${
+                            totalDebt > 0 ? "bg-rose-50 text-rose-700" : totalDebt < 0 ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
+                          }`}>
+                            {totalDebt > 0 ? "+" : ""}{moneyUZS(totalDebt)}
+                          </span>
+                        );
+                      })()}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        )}
       </div>
 
     </div>
