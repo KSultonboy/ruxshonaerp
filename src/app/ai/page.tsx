@@ -176,11 +176,15 @@ export default function AiPage() {
         ];
         return updated.slice(-20);
       });
-    } catch {
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message?.trim()
+          ? error.message
+          : "Xatolik yuz berdi. Qayta urining.";
       setMessages((prev) =>
         prev.map((m) =>
           m.id === aiMsgId
-            ? { ...m, text: "❌ Xatolik yuz berdi. Qayta urining.", loading: false }
+            ? { ...m, text: `❌ ${message}`, loading: false }
             : m
         )
       );
