@@ -32,7 +32,8 @@ type NavIcon =
   | "branch"
   | "shift"
   | "platform"
-  | "qr";
+  | "qr"
+  | "ai";
 
 type NavLink = {
   href: string;
@@ -222,6 +223,13 @@ const Icon = ({ name, className = "" }: { name: NavIcon; className?: string }) =
           <path d="M14 14h3v3h-3z" fill="none" stroke="currentColor" strokeWidth="1.7" />
         </svg>
       );
+    case "ai":
+      return (
+        <svg viewBox="0 0 24 24" className={base} aria-hidden>
+          <path d="M12 2a4 4 0 0 1 4 4c0 1.5-.8 2.8-2 3.5V11h1a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h1V9.5A4 4 0 0 1 8 6a4 4 0 0 1 4-4z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+          <path d="M10 14h4M10 17h4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      );
     default:
       return null;
   }
@@ -311,6 +319,7 @@ function getGroupsForRole(
         { href: "/shifts", label: t("Smenalar va rasmlar"), icon: "shift" },
         { href: "/wages", label: t("Ish haqi"), icon: "report" },
         { href: "/reports", label: t("Batafsil hisobot"), icon: "report" },
+        { href: "/ai", label: t("AI Yordamchi"), icon: "ai" },
       ],
     },
     {
