@@ -134,7 +134,7 @@ export default function DashboardShopsPage() {
       const transferTotal = transferSum.get(shop.id) ?? 0;
       const returnTotal = returnSum.get(shop.id) ?? 0;
       const paid = paidSum.get(shop.id) ?? 0;
-      const debt = transferTotal - returnTotal - paid;
+      const debt = (shop.initialDebt ?? 0) + transferTotal - returnTotal - paid;
       return {
         shop,
         transferSum: transferTotal,

@@ -129,7 +129,13 @@ export default function CashShopsPage() {
     const debt = new Map<string, number>();
     shops.forEach((shop) => {
       const shopId = shop.id;
-      debt.set(shopId, (transferSum.get(shopId) ?? 0) - (returnSum.get(shopId) ?? 0) - (paymentSum.get(shopId) ?? 0));
+      debt.set(
+        shopId,
+        (shop.initialDebt ?? 0) +
+          (transferSum.get(shopId) ?? 0) -
+          (returnSum.get(shopId) ?? 0) -
+          (paymentSum.get(shopId) ?? 0),
+      );
     });
 
     return debt;

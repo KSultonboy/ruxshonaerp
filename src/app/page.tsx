@@ -201,7 +201,7 @@ export default function Page() {
     try {
       const [
         statsRes, chartRes, topProductsRes, expCatRes, branchCashRes,
-        tBranchRes, tShopRes, rBranchRes, rShopRes, pBranchRes, pShopRes,
+        tBranchRes, tShopRes, rBranchRes, rShopRes, pBranchRes, pShopRes, dBranchRes, dShopRes,
       ] = await Promise.allSettled([
         apiFetch<StatsOverview>(`/stats/overview?${qs}`),
         apiFetch<{ points: TimeseriesPoint[] }>(`/reports/timeseries?${chartQs}`),
@@ -214,6 +214,8 @@ export default function Page() {
         apiFetch<SegmentRow[]>(`/reports/segments?metric=returns&segmentBy=shop&${qs}`),
         apiFetch<SegmentRow[]>(`/reports/segments?metric=payments&segmentBy=branch&${qs}`),
         apiFetch<SegmentRow[]>(`/reports/segments?metric=payments&segmentBy=shop&${qs}`),
+        apiFetch<SegmentRow[]>(`/reports/segments?metric=debt&segmentBy=branch&${qs}`),
+        apiFetch<SegmentRow[]>(`/reports/segments?metric=debt&segmentBy=shop&${qs}`),
       ]);
 
       if (statsRes.status === "fulfilled") setStats(statsRes.value);
@@ -250,14 +252,26 @@ export default function Page() {
         const tMap = merge(toMap(rows(tBranchRes)), toMap(rows(tShopRes)));
         const rMap = merge(toMap(rows(rBranchRes)), toMap(rows(rShopRes)));
         const pMap = merge(toMap(rows(pBranchRes)), toMap(rows(pShopRes)));
+        const dMap = merge(toMap(rows(dBranchRes)), toMap(rows(dShopRes)));
 
-        const allKeys = new Set([...tMap.keys(), ...rMap.keys(), ...pMap.keys()]);
+        const allKeys = new Set([
+          ...tMap.keys(),
+          ...rMap.keys(),
+          ...pMap.keys(),
+          ...dMap.keys(),
+        ]);
         const tableRows: ShopBranchRow[] = Array.from(allKeys).map(key => {
-          const label = tMap.get(key)?.label ?? rMap.get(key)?.label ?? pMap.get(key)?.label ?? key;
+          const label =
+            dMap.get(key)?.label ??
+            tMap.get(key)?.label ??
+            rMap.get(key)?.label ??
+            pMap.get(key)?.label ??
+            key;
           const transfers = tMap.get(key)?.value ?? 0;
           const returns   = rMap.get(key)?.value ?? 0;
           const payments  = pMap.get(key)?.value ?? 0;
-          return { key, label, transfers, returns, payments, debt: transfers - returns - payments };
+          const debt = dMap.get(key)?.value ?? (transfers - returns - payments);
+          return { key, label, transfers, returns, payments, debt };
         }).sort((a, b) => b.transfers - a.transfers);
         setShopBranchTable(tableRows);
       }
