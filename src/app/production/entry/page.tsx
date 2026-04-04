@@ -55,6 +55,7 @@ export default function ProductionEntryPage() {
     const { user } = useAuth();
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [pickerOpen, setPickerOpen] = useState(false);
     const [searchText, setSearchText] = useState("");
@@ -97,8 +98,12 @@ export default function ProductionEntryPage() {
         },
     });
 
-    const loadProducts = useCallback(async () => {
-        setLoading(true);
+    const loadProducts = useCallback(async (showPageLoader = true) => {
+        if (showPageLoader) {
+            setLoading(true);
+        } else {
+            setRefreshing(true);
+        }
         setLoadError(null);
 
         try {
@@ -124,12 +129,15 @@ export default function ProductionEntryPage() {
             setValue("productId", "", { shouldValidate: true });
             setLoadError(message);
         } finally {
-            setLoading(false);
+            if (showPageLoader) {
+                setLoading(false);
+            }
+            setRefreshing(false);
         }
-    }, [getValues, setValue, t, toast]);
+    }, [getValues, setValue, t]);
 
     useEffect(() => {
-        void loadProducts();
+        void loadProducts(true);
     }, [loadProducts]);
 
     const selectedProductId = useWatch({ control, name: "productId" });
@@ -470,11 +478,16 @@ export default function ProductionEntryPage() {
 
     return (
         <div className="mx-auto max-w-2xl space-y-6">
-            <div className="flex flex-col gap-1">
-                <h1 className="font-display text-3xl font-semibold text-cocoa-900">
-                    {t("Ishlab chiqarilgan mahsulot kiritish")}
-                </h1>
-                <p className="text-sm text-cocoa-600">{t("Ishlab chiqarilgan tayyor mahsulotlarni markaziy omborga kirim qilish")}</p>
+            <div className="flex flex-wrap items-end justify-between gap-3">
+                <div className="flex flex-col gap-1">
+                    <h1 className="font-display text-3xl font-semibold text-cocoa-900">
+                        {t("Ishlab chiqarilgan mahsulot kiritish")}
+                    </h1>
+                    <p className="text-sm text-cocoa-600">{t("Ishlab chiqarilgan tayyor mahsulotlarni markaziy omborga kirim qilish")}</p>
+                </div>
+                <Button variant="ghost" onClick={() => void loadProducts(false)} disabled={loading || refreshing}>
+                    {loading || refreshing ? t("Yangilanmoqda...") : t("Yangilash")}
+                </Button>
             </div>
 
             <Card>

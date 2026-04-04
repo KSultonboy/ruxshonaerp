@@ -55,6 +55,7 @@ export default function ProductionHistoryPage() {
     const [movements, setMovements] = useState<StockMovement[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [editorOpen, setEditorOpen] = useState(false);
     const [editingMovement, setEditingMovement] = useState<StockMovement | null>(null);
@@ -67,8 +68,12 @@ export default function ProductionHistoryPage() {
     const [saveBusy, setSaveBusy] = useState(false);
     const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
 
-    const loadHistory = useCallback(async () => {
-        setLoading(true);
+    const loadHistory = useCallback(async (keepVisible = false) => {
+        if (keepVisible) {
+            setRefreshing(true);
+        } else {
+            setLoading(true);
+        }
         setLoadError(null);
 
         try {
@@ -85,7 +90,11 @@ export default function ProductionHistoryPage() {
             setLoadError(message);
             toast.error(t("Xatolik"), message);
         } finally {
-            setLoading(false);
+            if (keepVisible) {
+                setRefreshing(false);
+            } else {
+                setLoading(false);
+            }
         }
     }, [t, toast, userId]);
 
@@ -187,7 +196,7 @@ export default function ProductionHistoryPage() {
             });
             toast.success(t("Saqlandi"));
             closeEditor();
-            await loadHistory();
+            await loadHistory(true);
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : t("Saqlab bo'lmadi");
             toast.error(t("Xatolik"), message);
@@ -204,7 +213,7 @@ export default function ProductionHistoryPage() {
         try {
             await warehouseService.removeMovement(movement.id);
             toast.success(t("O'chirildi"));
-            await loadHistory();
+            await loadHistory(true);
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : t("O'chirib bo'lmadi");
             toast.error(t("Xatolik"), message);
@@ -215,13 +224,18 @@ export default function ProductionHistoryPage() {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col gap-1">
-                <h1 className="font-display text-3xl font-semibold text-cocoa-900">
-                    {t("Ishlab chiqarish tarixi")}
-                </h1>
-                <p className="text-sm text-cocoa-600">
-                    {t("Siz kiritgan mahsulotlar tarixi")}
-                </p>
+            <div className="flex flex-wrap items-end justify-between gap-3">
+                <div className="flex flex-col gap-1">
+                    <h1 className="font-display text-3xl font-semibold text-cocoa-900">
+                        {t("Ishlab chiqarish tarixi")}
+                    </h1>
+                    <p className="text-sm text-cocoa-600">
+                        {t("Siz kiritgan mahsulotlar tarixi")}
+                    </p>
+                </div>
+                <Button variant="ghost" onClick={() => void loadHistory(true)} disabled={loading || refreshing}>
+                    {loading || refreshing ? t("Yangilanmoqda...") : t("Yangilash")}
+                </Button>
             </div>
 
             <Card>

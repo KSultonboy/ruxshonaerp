@@ -33,6 +33,7 @@ export default function WarehousePage() {
   const [branchStocks, setBranchStocks] = useState<BranchStock[]>([]);
   const [branchQuery, setBranchQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Qoldiq tuzatish state
   const [adjustProduct, setAdjustProduct] = useState<Product | null>(null);
@@ -72,7 +73,7 @@ export default function WarehousePage() {
     setAdjustSaving(true);
     try {
       await warehouseService.adjustStock(adjustProduct.id, newQty, adjustNote || undefined);
-      toast.success(t("Saqlandi"), `${adjustProduct.name}: ${adjustProduct.stock} → ${newQty}`);
+      toast.success(t("Saqlandi"), `${adjustProduct.name}: ${adjustProduct.stock} -> ${newQty}`);
       setAdjustProduct(null);
       await loadCentral();
     } catch (e: any) {
@@ -109,6 +110,19 @@ export default function WarehousePage() {
       loadCentral();
     } else {
       loadBranch();
+    }
+  }, [loadBranch, loadCentral, warehouseTarget]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      if (warehouseTarget === "central") {
+        await loadCentral();
+      } else {
+        await loadBranch();
+      }
+    } finally {
+      setRefreshing(false);
     }
   }, [loadBranch, loadCentral, warehouseTarget]);
 
@@ -156,6 +170,9 @@ export default function WarehousePage() {
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
+          <Button variant="ghost" onClick={() => void handleRefresh()} disabled={loading || refreshing}>
+            {loading || refreshing ? t("Yangilanmoqda...") : t("Yangilash")}
+          </Button>
           {canSelectBranch ? (
             <div className="w-full min-w-[200px] max-w-xs">
               <Select

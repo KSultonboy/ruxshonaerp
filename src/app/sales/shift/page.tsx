@@ -8,7 +8,8 @@ import ShiftCloseModal from "@/components/sales/ShiftCloseModal";
 import { useToast } from "@/components/ui/toast/ToastProvider";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { salesService } from "@/services/sales";
+import { salesService, type ShopOrder } from "@/services/sales";
+import { printAllOrders } from "@/app/sales/orders/page";
 import { moneyUZS } from "@/lib/format";
 import { onlyDigits, formatDigitsWithSpaces } from "@/lib/mask";
 import type {
@@ -93,6 +94,7 @@ export default function SalesShiftPage() {
   const [dayByMethod, setDayByMethod] = useState<MethodStat[]>([]);
   const [closeWarningShown, setCloseWarningShown] = useState(false);
   const [openWarningShown, setOpenWarningShown] = useState(false);
+  const [pendingOrders, setPendingOrders] = useState<ShopOrder[]>([]);
 
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -195,6 +197,14 @@ export default function SalesShiftPage() {
       await salesService.openShift();
       toast.success(t("Smena ochildi"));
       await refresh();
+      // Faol buyurtmalarni yuklash va toast ko'rsatish
+      try {
+        const activeOrders = await salesService.listShopOrders("ACTIVE");
+        setPendingOrders(activeOrders);
+        if (activeOrders.length > 0) {
+          toast.info(t("Buyurtmalar"), `${activeOrders.length} ta faol buyurtma bor`);
+        }
+      } catch { /* ignore */ }
     } catch (e: any) {
       toast.error(t("Xatolik"), e?.message || t("Smenani ochib bo'lmadi"));
     } finally {
@@ -578,6 +588,82 @@ export default function SalesShiftPage() {
             <Button variant="ghost" onClick={refresh}>{t("Yangilash")}</Button>
           </div>
         </Card>
+
+        {/* Faol buyurtmalar bloki — smena ochilganda ko'rinadi */}
+        {isOpen && pendingOrders.length > 0 && (
+          <Card>
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">
+                  📦 {t("Faol buyurtmalar")}
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {pendingOrders.length} {t("ta buyurtma bajarilishini kutmoqda")}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                onClick={() => printAllOrders(pendingOrders)}
+                className="flex items-center gap-1.5 text-xs"
+              >
+                🖨 {t("Barchasini chop etish")}
+              </Button>
+            </div>
+            <div className="space-y-2 max-h-64 overflow-auto">
+              {pendingOrders.map((order) => (
+                <div
+                  key={order.id}
+                  className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-slate-800 truncate">
+                      {order.description}
+                    </div>
+                    {order.customerName && (
+                      <div className="text-xs text-slate-500">{order.customerName}</div>
+                    )}
+                    {order.deliveryDate && (
+                      <div className="text-xs font-medium text-amber-600">
+                        🗓{" "}
+                        {new Date(order.deliveryDate).toLocaleDateString("uz-UZ", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          year: "numeric",
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {order.preparedAt && (
+                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                        ✅
+                      </span>
+                    )}
+                    <button
+                      onClick={() => printAllOrders([order])}
+                      title={t("Chop etish")}
+                      className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="6 9 6 2 18 2 18 9"/>
+                        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                        <rect x="6" y="14" width="12" height="8"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3">
+              <button
+                onClick={() => router.push("/sales/orders")}
+                className="text-xs font-medium text-cocoa-600 hover:underline"
+              >
+                {t("Buyurtmalar sahifasiga o'tish →")}
+              </button>
+            </div>
+          </Card>
+        )}
       </div>
     </>
   );

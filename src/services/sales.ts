@@ -694,6 +694,7 @@ const local = {
     customerName?: string;
     phone?: string;
     note?: string;
+    deliveryDate?: string;
   }): Promise<ShopOrder> {
     throw new Error("Not available in offline mode");
   },
@@ -702,6 +703,12 @@ const local = {
   },
   async cancelShopOrder(_id: string): Promise<ShopOrder> {
     throw new Error("Not available in offline mode");
+  },
+  async markPrepared(_id: string): Promise<ShopOrder> {
+    throw new Error("Not available in offline mode");
+  },
+  async pendingOrdersCount(): Promise<number> {
+    return 0;
   },
 };
 
@@ -715,6 +722,8 @@ export interface ShopOrder {
   paidAmount: number;
   status: "ACTIVE" | "COMPLETED" | "CANCELLED";
   note: string | null;
+  deliveryDate: string | null;
+  preparedAt: string | null;
   createdAt: string;
   createdBy: { id: string; username: string } | null;
 }
@@ -844,6 +853,7 @@ const api = {
     customerName?: string;
     phone?: string;
     note?: string;
+    deliveryDate?: string;
   }): Promise<ShopOrder> {
     return apiFetch<ShopOrder>("/sales/shop-orders", {
       method: "POST",
@@ -860,6 +870,14 @@ const api = {
     return apiFetch<ShopOrder>(`/sales/shop-orders/${encodeURIComponent(id)}/cancel`, {
       method: "POST",
     });
+  },
+  async markPrepared(id: string): Promise<ShopOrder> {
+    return apiFetch<ShopOrder>(`/sales/shop-orders/${encodeURIComponent(id)}/prepared`, {
+      method: "POST",
+    });
+  },
+  async pendingOrdersCount(): Promise<number> {
+    return apiFetch<number>("/sales/shop-orders/pending-count");
   },
 };
 

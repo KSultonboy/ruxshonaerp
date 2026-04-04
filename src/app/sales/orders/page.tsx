@@ -55,6 +55,129 @@ function formatDate(iso: string) {
   }
 }
 
+function formatDeliveryDate(iso: string | null) {
+  if (!iso) return null;
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString("uz-UZ", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+/** Returns true if delivery date is today or already passed */
+function isDeliveryUrgent(iso: string | null): boolean {
+  if (!iso) return false;
+  const d = new Date(iso);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  d.setHours(0, 0, 0, 0);
+  return d <= today;
+}
+
+// ─── Print single order ──────────────────────────────────────────────────────
+
+function printOrder(order: ShopOrder) {
+  const remaining = order.totalAmount - order.paidAmount;
+  const deliveryStr = formatDeliveryDate(order.deliveryDate) ?? "—";
+
+  const html = `<!doctype html><html><head><meta charset="utf-8"/>
+    <title>Buyurtma</title>
+    <style>
+      *{box-sizing:border-box}
+      body{font-family:Arial,sans-serif;font-size:13px;margin:0;padding:12px;color:#1a1a1a;max-width:300px}
+      h2{margin:0 0 6px;font-size:16px;text-align:center}
+      .sep{border:none;border-top:1px dashed #999;margin:8px 0}
+      .row{display:flex;justify-content:space-between;margin-bottom:4px}
+      .label{color:#555;font-size:12px}
+      .val{font-weight:700;font-size:12px}
+      .big{font-size:15px;font-weight:700}
+      .delivery{background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:6px 10px;margin:8px 0;text-align:center;font-weight:700;font-size:14px}
+      .prepared{background:#d1fae5;border:1px solid #34d399;border-radius:6px;padding:4px 10px;text-align:center;font-size:12px;margin-top:6px}
+      @media print{@page{margin:4mm;size:80mm auto}}
+    </style></head><body>
+    <h2>📦 Buyurtma</h2>
+    <hr class="sep"/>
+    <div class="row"><span class="label">Sana:</span><span class="val">${formatDate(order.createdAt)}</span></div>
+    ${order.customerName ? `<div class="row"><span class="label">Mijoz:</span><span class="val">${order.customerName}</span></div>` : ""}
+    ${order.phone ? `<div class="row"><span class="label">Telefon:</span><span class="val">${order.phone}</span></div>` : ""}
+    <hr class="sep"/>
+    <div style="margin-bottom:8px">
+      <div class="label" style="margin-bottom:2px">Tavsif:</div>
+      <div class="big">${order.description}</div>
+    </div>
+    ${order.note ? `<div style="margin-bottom:8px"><div class="label">Izoh:</div><div>${order.note}</div></div>` : ""}
+    <div class="delivery">🗓 Yetkazish: ${deliveryStr}</div>
+    <hr class="sep"/>
+    <div class="row"><span class="label">Jami:</span><span class="val">${moneyUZS(order.totalAmount)}</span></div>
+    <div class="row"><span class="label">To'langan:</span><span class="val" style="color:#16a34a">${moneyUZS(order.paidAmount)}</span></div>
+    ${remaining > 0 ? `<div class="row"><span class="label">Qoldiq:</span><span class="val" style="color:#ea580c">${moneyUZS(remaining)}</span></div>` : ""}
+    ${order.preparedAt ? `<div class="prepared">✅ Tayyorlandi: ${formatDate(order.preparedAt)}</div>` : `<div style="margin-top:16px;border:1px dashed #ccc;height:40px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:11px">Tayyorlandi imzosi</div>`}
+    <script>window.onload=()=>{window.print();setTimeout(()=>window.close(),600)}</script>
+    </body></html>`;
+
+  const w = window.open("", "_blank", "width=380,height=600");
+  if (w) { w.document.open(); w.document.write(html); w.document.close(); }
+}
+
+/** Print multiple orders with page-break between each */
+export function printAllOrders(orders: ShopOrder[]) {
+  if (orders.length === 0) return;
+
+  const orderBlocks = orders.map((order) => {
+    const remaining = order.totalAmount - order.paidAmount;
+    const deliveryStr = formatDeliveryDate(order.deliveryDate) ?? "—";
+    return `
+      <div class="order-block">
+        <h2>📦 Buyurtma</h2>
+        <hr class="sep"/>
+        <div class="row"><span class="label">Sana:</span><span class="val">${formatDate(order.createdAt)}</span></div>
+        ${order.customerName ? `<div class="row"><span class="label">Mijoz:</span><span class="val">${order.customerName}</span></div>` : ""}
+        ${order.phone ? `<div class="row"><span class="label">Telefon:</span><span class="val">${order.phone}</span></div>` : ""}
+        <hr class="sep"/>
+        <div style="margin-bottom:8px">
+          <div class="label" style="margin-bottom:2px">Tavsif:</div>
+          <div class="big">${order.description}</div>
+        </div>
+        ${order.note ? `<div style="margin-bottom:8px"><div class="label">Izoh:</div><div>${order.note}</div></div>` : ""}
+        <div class="delivery">🗓 Yetkazish: ${deliveryStr}</div>
+        <hr class="sep"/>
+        <div class="row"><span class="label">Jami:</span><span class="val">${moneyUZS(order.totalAmount)}</span></div>
+        <div class="row"><span class="label">To'langan:</span><span class="val" style="color:#16a34a">${moneyUZS(order.paidAmount)}</span></div>
+        ${remaining > 0 ? `<div class="row"><span class="label">Qoldiq:</span><span class="val" style="color:#ea580c">${moneyUZS(remaining)}</span></div>` : ""}
+        <div style="margin-top:16px;border:1px dashed #ccc;height:40px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:11px">Tayyorlandi imzosi</div>
+      </div>
+    `;
+  }).join("\n");
+
+  const html = `<!doctype html><html><head><meta charset="utf-8"/>
+    <title>Barcha buyurtmalar</title>
+    <style>
+      *{box-sizing:border-box}
+      body{font-family:Arial,sans-serif;font-size:13px;margin:0;padding:0;color:#1a1a1a}
+      .order-block{max-width:300px;margin:0 auto;padding:12px;page-break-after:always}
+      .order-block:last-child{page-break-after:avoid}
+      h2{margin:0 0 6px;font-size:16px;text-align:center}
+      .sep{border:none;border-top:1px dashed #999;margin:8px 0}
+      .row{display:flex;justify-content:space-between;margin-bottom:4px}
+      .label{color:#555;font-size:12px}
+      .val{font-weight:700;font-size:12px}
+      .big{font-size:15px;font-weight:700}
+      .delivery{background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:6px 10px;margin:8px 0;text-align:center;font-weight:700;font-size:14px}
+      @media print{@page{margin:4mm;size:80mm auto}}
+    </style></head><body>
+    ${orderBlocks}
+    <script>window.onload=()=>{window.print();setTimeout(()=>window.close(),600)}</script>
+    </body></html>`;
+
+  const w = window.open("", "_blank", "width=420,height=700");
+  if (w) { w.document.open(); w.document.write(html); w.document.close(); }
+}
+
 // ─── Create Order Modal ──────────────────────────────────────────────────────
 
 interface CreateOrderModalProps {
@@ -73,6 +196,7 @@ function CreateOrderModal({ open, onClose, onCreated }: CreateOrderModalProps) {
   const [payMode, setPayMode] = useState<"full" | "deposit">("deposit");
   const [depositAmount, setDepositAmount] = useState("");
   const [note, setNote] = useState("");
+  const [deliveryDate, setDeliveryDate] = useState("");
 
   function reset() {
     setDescription("");
@@ -82,6 +206,7 @@ function CreateOrderModal({ open, onClose, onCreated }: CreateOrderModalProps) {
     setPayMode("deposit");
     setDepositAmount("");
     setNote("");
+    setDeliveryDate("");
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -110,6 +235,7 @@ function CreateOrderModal({ open, onClose, onCreated }: CreateOrderModalProps) {
         customerName: customerName.trim() || undefined,
         phone: phone.trim() || undefined,
         note: note.trim() || undefined,
+        deliveryDate: deliveryDate || undefined,
       });
       toast.success("Buyurtma yaratildi");
       onCreated(order);
@@ -193,6 +319,20 @@ function CreateOrderModal({ open, onClose, onCreated }: CreateOrderModalProps) {
             min={0}
           />
         )}
+
+        {/* Yetkazish sanasi */}
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-semibold uppercase tracking-wide text-cocoa-600">
+            Yetkazish sanasi
+          </label>
+          <input
+            type="date"
+            value={deliveryDate}
+            onChange={(e) => setDeliveryDate(e.target.value)}
+            className="rounded-xl border border-cocoa-200 bg-white px-3 py-2 text-sm text-cocoa-900 outline-none focus:border-berry-500 focus:ring-1 focus:ring-berry-500"
+          />
+          <p className="text-xs text-cocoa-400">Buyurtma qachon tayyor bo'lishi kerak</p>
+        </div>
 
         <Input
           label="Eslatma"
@@ -311,6 +451,7 @@ export default function ShopOrdersPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [payOrder, setPayOrder] = useState<ShopOrder | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [preparingId, setPreparingId] = useState<string | null>(null);
 
   const loadOrders = useCallback(async () => {
     setLoading(true);
@@ -362,18 +503,51 @@ export default function ShopOrdersPage() {
     }
   }
 
+  async function handlePrepared(order: ShopOrder) {
+    setPreparingId(order.id);
+    try {
+      const updated = await salesService.markPrepared(order.id);
+      toast.success(
+        updated.preparedAt ? "Tayyorlandi belgisi qo'yildi ✅" : "Belgi olib tashlandi"
+      );
+      setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+    } catch (err: any) {
+      toast.error(err?.message ?? "Xatolik yuz berdi");
+    } finally {
+      setPreparingId(null);
+    }
+  }
+
   const canCreate = user?.role === "SALES" || user?.role === "MANAGER";
+  const canPrepare =
+    user?.role === "PRODUCTION" ||
+    user?.role === "SALES" ||
+    user?.role === "MANAGER" ||
+    user?.role === "ADMIN";
+
+  const activeOrders = orders.filter((o) => o.status === "ACTIVE");
 
   return (
     <div className="flex flex-col gap-4 p-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold text-slate-800">Buyurtmalar</h1>
-        {canCreate && (
-          <Button onClick={() => setShowCreate(true)}>
-            + Yangi buyurtma
-          </Button>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          {tab === "ACTIVE" && activeOrders.length > 0 && (
+            <Button
+              variant="ghost"
+              onClick={() => printAllOrders(activeOrders)}
+              className="flex items-center gap-1.5 text-xs"
+            >
+              🖨 Barchasini chop ({activeOrders.length})
+            </Button>
+          )}
+          {canCreate && (
+            <Button onClick={() => setShowCreate(true)}>
+              + Yangi buyurtma
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Tabs */}
@@ -413,10 +587,14 @@ export default function ShopOrdersPage() {
             {orders.map((order) => {
               const remaining = order.totalAmount - order.paidAmount;
               const badge = STATUS_BADGE[order.status];
+              const urgent = isDeliveryUrgent(order.deliveryDate);
               return (
                 <div
                   key={order.id}
-                  className="flex flex-col gap-2 p-4 sm:flex-row sm:items-start sm:justify-between"
+                  className={[
+                    "flex flex-col gap-2 p-4 sm:flex-row sm:items-start sm:justify-between",
+                    order.preparedAt ? "bg-emerald-50/50" : "",
+                  ].join(" ")}
                 >
                   {/* Left: info */}
                   <div className="flex flex-col gap-1 min-w-0">
@@ -425,7 +603,13 @@ export default function ShopOrdersPage() {
                         {order.description}
                       </span>
                       <span className={badge.className}>{badge.label}</span>
+                      {order.preparedAt && (
+                        <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-700">
+                          ✅ Tayyorlandi
+                        </span>
+                      )}
                     </div>
+
                     {(order.customerName || order.phone) && (
                       <div className="text-xs text-slate-500">
                         {order.customerName && (
@@ -437,6 +621,29 @@ export default function ShopOrdersPage() {
                         {order.phone && <span>{order.phone}</span>}
                       </div>
                     )}
+
+                    {/* Delivery date */}
+                    {order.deliveryDate && (
+                      <div
+                        className={[
+                          "text-xs font-semibold flex items-center gap-1",
+                          urgent
+                            ? "text-rose-600"
+                            : "text-amber-600",
+                        ].join(" ")}
+                      >
+                        🗓 Yetkazish:{" "}
+                        <span>
+                          {formatDeliveryDate(order.deliveryDate)}
+                        </span>
+                        {urgent && (
+                          <span className="rounded bg-rose-100 px-1 py-0.5 text-[10px] font-bold text-rose-700">
+                            BUGUN/O'TDI
+                          </span>
+                        )}
+                      </div>
+                    )}
+
                     <div className="text-xs text-slate-500 flex flex-wrap gap-3 mt-0.5">
                       <span>
                         Jami:{" "}
@@ -459,6 +666,7 @@ export default function ShopOrdersPage() {
                         </span>
                       )}
                     </div>
+
                     <div className="text-xs text-slate-400 mt-0.5">
                       {formatDate(order.createdAt)}
                       {order.createdBy && (
@@ -473,7 +681,43 @@ export default function ShopOrdersPage() {
                   </div>
 
                   {/* Right: actions */}
-                  <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+                    {/* Print single order */}
+                    {order.status === "ACTIVE" && (
+                      <button
+                        onClick={() => printOrder(order)}
+                        title="Chop etish"
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
+                      >
+                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="6 9 6 2 18 2 18 9"/>
+                          <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                          <rect x="6" y="14" width="12" height="8"/>
+                        </svg>
+                      </button>
+                    )}
+
+                    {/* Tayyorlandi */}
+                    {order.status === "ACTIVE" && canPrepare && (
+                      <Button
+                        variant={order.preparedAt ? "ghost" : "ghost"}
+                        onClick={() => handlePrepared(order)}
+                        disabled={preparingId === order.id}
+                        className={[
+                          "px-3 py-1 text-xs",
+                          order.preparedAt
+                            ? "text-emerald-700 bg-emerald-50 hover:bg-emerald-100"
+                            : "text-cocoa-700 hover:bg-cream-100",
+                        ].join(" ")}
+                      >
+                        {preparingId === order.id
+                          ? "..."
+                          : order.preparedAt
+                          ? "✅ Tayyorlandi"
+                          : "Tayyorlandi"}
+                      </Button>
+                    )}
+
                     {order.status === "ACTIVE" && canCreate && (
                       <Button
                         className="px-3 py-1 text-xs"
