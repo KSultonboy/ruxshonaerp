@@ -29,6 +29,7 @@ type TransferReceiptData = {
   fromBranch: string;
   toBranch: string;
   items: Array<{ name: string; quantity: number; price?: number }>;
+  previousDebt?: number;
 };
 
 function createDraftRow(): ItemDraft {
@@ -221,6 +222,13 @@ export default function TransferShopsPage() {
     submitInProgressRef.current = true;
     setLoading(true);
     try {
+      // Avvalgi qarzni oldindan yuklash (transfer yozilishidan oldingi holat)
+      let previousDebt: number | undefined;
+      try {
+        const debtInfo = await shopsService.getDebt(shopId);
+        previousDebt = debtInfo.totalDebt ?? debtInfo.calculatedDebt;
+      } catch { /* qarz ma'lumoti bo'lmasa chekda ko'rsatmaymiz */ }
+
       const savedTransfer = editingTransferId
         ? await transfersService.update(editingTransferId, { targetType: "SHOP", shopId, note, items: payload })
         : await transfersService.create({ targetType: "SHOP", shopId, note, items: payload });
@@ -244,6 +252,7 @@ export default function TransferShopsPage() {
         fromBranch: t("Markaziy Ombor"),
         toBranch: shops.find((item) => item.id === shopId)?.name ?? "-",
         items: receiptItems,
+        previousDebt,
       };
 
       flushSync(() => {
