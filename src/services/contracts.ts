@@ -105,4 +105,5 @@ export interface IWarehouseService {
   createMovement(dto: StockMovementCreateDTO): Promise<StockMovement>;
   updateMovement(id: string, dto: StockMovementUpdateDTO): Promise<StockMovement>;
   removeMovement(id: string): Promise<void>;
+  adjustStock(productId: string, newQuantity: number, note?: string): Promise<{ ok: boolean; previousStock: number; newStock: number }>;
 }

@@ -170,6 +170,16 @@ const local: IWarehouseService = {
       movements.filter((movement) => movement.id !== id)
     );
   },
+
+  async adjustStock(productId, newQuantity) {
+    const products = normalizeProducts(getJSON<Product[]>(STORAGE_KEYS.products, []));
+    const idx = products.findIndex((p) => p.id === productId);
+    if (idx === -1) throw new Error("Product not found");
+    const previousStock = products[idx].stock;
+    products[idx] = { ...products[idx], stock: newQuantity };
+    setJSON(STORAGE_KEYS.products, products);
+    return { ok: true, previousStock, newStock: newQuantity };
+  },
 };
 
 const api: IWarehouseService = {
@@ -194,6 +204,16 @@ const api: IWarehouseService = {
 
   async removeMovement(id: string) {
     await apiFetch<void>(`/warehouse/movements/${id}`, { method: "DELETE" });
+  },
+
+  async adjustStock(productId: string, newQuantity: number, note?: string) {
+    return apiFetch<{ ok: boolean; previousStock: number; newStock: number }>(
+      "/warehouse/adjust-stock",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ productId, newQuantity, note }),
+      }
+    );
   },
 };
 

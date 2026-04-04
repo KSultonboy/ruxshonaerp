@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Card from "@/components/ui/Card";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import StatCard from "@/components/ui/StatCard";
 import Badge from "@/components/ui/Badge";
+import Button from "@/components/ui/Button";
+import Modal from "@/components/ui/Modal";
 import { Table, T } from "@/components/ui/Table";
 import { useToast } from "@/components/ui/toast/ToastProvider";
 import { useI18n } from "@/components/i18n/I18nProvider";
@@ -32,6 +34,13 @@ export default function WarehousePage() {
   const [branchQuery, setBranchQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
+  // Qoldiq tuzatish state
+  const [adjustProduct, setAdjustProduct] = useState<Product | null>(null);
+  const [adjustQty, setAdjustQty] = useState("");
+  const [adjustNote, setAdjustNote] = useState("");
+  const [adjustSaving, setAdjustSaving] = useState(false);
+  const adjustInputRef = useRef<HTMLInputElement>(null);
+
   const loadCentral = useCallback(async () => {
     setLoading(true);
     try {
@@ -45,6 +54,33 @@ export default function WarehousePage() {
       setLoading(false);
     }
   }, [toast, t]);
+
+  function openAdjust(product: Product) {
+    setAdjustProduct(product);
+    setAdjustQty(String(product.stock));
+    setAdjustNote("");
+    setTimeout(() => adjustInputRef.current?.select(), 80);
+  }
+
+  async function handleAdjustSave() {
+    if (!adjustProduct) return;
+    const newQty = parseFloat(adjustQty);
+    if (isNaN(newQty) || newQty < 0) {
+      toast.error(t("Xatolik"), t("Miqdor noto'g'ri kiritilgan"));
+      return;
+    }
+    setAdjustSaving(true);
+    try {
+      await warehouseService.adjustStock(adjustProduct.id, newQty, adjustNote || undefined);
+      toast.success(t("Saqlandi"), `${adjustProduct.name}: ${adjustProduct.stock} → ${newQty}`);
+      setAdjustProduct(null);
+      await loadCentral();
+    } catch (e: any) {
+      toast.error(t("Xatolik"), e?.message || t("Saqlashda xatolik"));
+    } finally {
+      setAdjustSaving(false);
+    }
+  }
 
   const loadBranch = useCallback(async () => {
     if (warehouseTarget === "central") return;
@@ -158,6 +194,7 @@ export default function WarehousePage() {
                     <th>{t("Barcode")}</th>
                     <th>{t("Miqdor")}</th>
                     <th>{t("Narx")}</th>
+                    {role === "ADMIN" ? <th /> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -169,6 +206,20 @@ export default function WarehousePage() {
                       <td className="text-sm text-cocoa-700">
                         {formatDigitsWithSpaces(String(product.salePrice ?? product.price ?? 0))} so'm
                       </td>
+                      {role === "ADMIN" ? (
+                        <td>
+                          <button
+                            onClick={() => openAdjust(product)}
+                            title={t("Qoldiqni tuzatish")}
+                            className="rounded-lg p-1.5 text-cocoa-400 transition hover:bg-cream-100 hover:text-berry-700"
+                          >
+                            <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden>
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          </button>
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>
@@ -224,6 +275,63 @@ export default function WarehousePage() {
           )}
         </Card>
       )}
+
+      {/* Qoldiq tuzatish modal */}
+      <Modal
+        title={t("Qoldiqni tuzatish")}
+        open={!!adjustProduct}
+        onClose={() => setAdjustProduct(null)}
+      >
+        {adjustProduct && (
+          <div className="space-y-4">
+            <div className="rounded-xl bg-cream-100 px-4 py-3">
+              <p className="text-xs text-cocoa-500">{t("Mahsulot")}</p>
+              <p className="font-semibold text-cocoa-900">{adjustProduct.name}</p>
+              <p className="mt-0.5 text-sm text-cocoa-600">
+                {t("Hozirgi qoldiq")}:{" "}
+                <span className="font-semibold text-cocoa-800">
+                  {formatDigitsWithSpaces(String(adjustProduct.stock))}
+                </span>
+              </p>
+            </div>
+
+            <Input
+              ref={adjustInputRef}
+              label={t("Yangi qoldiq miqdori")}
+              type="number"
+              min="0"
+              step="any"
+              value={adjustQty}
+              onChange={(e) => setAdjustQty(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleAdjustSave(); }}
+            />
+
+            <Input
+              label={t("Izoh (ixtiyoriy)")}
+              placeholder={t("Inventarizatsiya tuzatish")}
+              value={adjustNote}
+              onChange={(e) => setAdjustNote(e.target.value)}
+            />
+
+            <div className="flex gap-2 pt-1">
+              <Button
+                onClick={handleAdjustSave}
+                disabled={adjustSaving || adjustQty === ""}
+                className="flex-1"
+              >
+                {adjustSaving ? t("Saqlanmoqda...") : t("Saqlash")}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setAdjustProduct(null)}
+                disabled={adjustSaving}
+              >
+                {t("Bekor")}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

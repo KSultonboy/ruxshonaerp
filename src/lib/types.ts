@@ -313,8 +313,20 @@ export type Shop = {
   name: string;
   address?: string;
   phone?: string;
+  initialDebt?: number;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ShopDebt = {
+  shopId: string;
+  shopName: string;
+  initialDebt: number;
+  transfersTotal: number;
+  returnsTotal: number;
+  paymentsTotal: number;
+  calculatedDebt: number;
+  totalDebt: number;
 };
 
 export type BranchStock = {
