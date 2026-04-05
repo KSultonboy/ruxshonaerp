@@ -58,6 +58,11 @@ interface CustomerSession {
   cashbackBarcode: string;
   cashbackRedeemAmount: string;
   cashbackUser: TelegramCashbackUser | null;
+  giftCardBarcode: string;
+  giftCardType: "FIXED_AMOUNT" | "PERCENTAGE" | null;
+  giftCardAmount: number | null;
+  giftCardPercent: number | null;
+  giftCardExpiresAt: string | null;
 }
 
 interface SaleReceiptData {
@@ -74,6 +79,8 @@ interface SaleReceiptData {
   cashbackEarned?: number;
   finalPaid?: number;
   cashbackBalance?: number;
+  giftCardDiscount?: number;
+  giftCardPercent?: number;
   items?: Array<{
     name: string;
     quantity: number;
@@ -189,6 +196,11 @@ function createCustomerSession(index: number): CustomerSession {
     cashbackBarcode: "",
     cashbackRedeemAmount: "",
     cashbackUser: null,
+    giftCardBarcode: "",
+    giftCardType: null,
+    giftCardAmount: null,
+    giftCardPercent: null,
+    giftCardExpiresAt: null,
   };
 }
 
@@ -276,6 +288,17 @@ export default function SalesCashierPage() {
   const [documentNo] = useState(
     () => `KASSA-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(Math.random() * 9000) + 1000}`
   );
+  // Gift card activation modal state
+  const [giftCardActivateOpen, setGiftCardActivateOpen] = useState(false);
+  const [giftCardActivateBarcode, setGiftCardActivateBarcode] = useState("");
+  const [giftCardActivateType, setGiftCardActivateType] = useState<"FIXED_AMOUNT" | "PERCENTAGE">("FIXED_AMOUNT");
+  const [giftCardActivateAmount, setGiftCardActivateAmount] = useState<number | null>(null);
+  const [giftCardActivatePercent, setGiftCardActivatePercent] = useState<number | null>(null);
+  const [giftCardActivateDuration, setGiftCardActivateDuration] = useState<number | null>(null);
+  const [giftCardActivating, setGiftCardActivating] = useState(false);
+  // Gift card use modal state (within cashback modal)
+  const [giftCardLookupLoading, setGiftCardLookupLoading] = useState(false);
+  const giftCardInputRef = useRef<HTMLInputElement>(null);
 
   const canChooseBranch = user?.role === "ADMIN";
   const activeCustomer = customerSessions[activeCustomerIndex] ?? customerSessions[0];
@@ -287,6 +310,11 @@ export default function SalesCashierPage() {
   const cashbackBarcode = activeCustomer?.cashbackBarcode ?? "";
   const cashbackRedeemAmount = activeCustomer?.cashbackRedeemAmount ?? "";
   const cashbackUser = activeCustomer?.cashbackUser ?? null;
+  const giftCardBarcode = activeCustomer?.giftCardBarcode ?? "";
+  const giftCardType = activeCustomer?.giftCardType ?? null;
+  const giftCardAmount = activeCustomer?.giftCardAmount ?? null;
+  const giftCardPercent = activeCustomer?.giftCardPercent ?? null;
+  const giftCardExpiresAt = activeCustomer?.giftCardExpiresAt ?? null;
 
   useEffect(() => {
     let active = true;
@@ -441,6 +469,11 @@ export default function SalesCashierPage() {
       cashbackBarcode: "",
       cashbackRedeemAmount: "",
       cashbackUser: null,
+      giftCardBarcode: "",
+      giftCardType: null,
+      giftCardAmount: null,
+      giftCardPercent: null,
+      giftCardExpiresAt: null,
     }));
   }
 
@@ -496,6 +529,101 @@ export default function SalesCashierPage() {
     clearCashbackForActiveCustomer();
     setCashbackOpen(false);
     setConfirmPrintOpen(true);
+  }
+
+  async function handleGiftCardCheck() {
+    const barcode = giftCardBarcode.trim();
+    if (!barcode) return;
+    setGiftCardLookupLoading(true);
+    try {
+      const result = await salesService.checkGiftCard(barcode);
+      if (!result.active) {
+        const msg = result.expired ? t("Bu kartaning muddati tugagan") : t("Bu karta faol emas yoki topilmadi");
+        toast.error(t("Xatolik"), msg);
+        updateActiveCustomerSession((s) => ({
+          ...s,
+          giftCardType: null,
+          giftCardAmount: null,
+          giftCardPercent: null,
+          giftCardExpiresAt: null,
+        }));
+        return;
+      }
+      if (result.type === "PERCENTAGE") {
+        updateActiveCustomerSession((s) => ({
+          ...s,
+          giftCardType: "PERCENTAGE",
+          giftCardAmount: null,
+          giftCardPercent: result.percent ?? null,
+          giftCardExpiresAt: result.expiresAt ?? null,
+        }));
+        toast.success(t("Karta topildi"), `${result.percent}% chegirma`);
+      } else {
+        updateActiveCustomerSession((s) => ({
+          ...s,
+          giftCardType: "FIXED_AMOUNT",
+          giftCardAmount: result.amount ?? null,
+          giftCardPercent: null,
+          giftCardExpiresAt: null,
+        }));
+        toast.success(t("Karta topildi"), `${formatMoney(result.amount ?? 0)} so'm chegirma`);
+      }
+    } catch (err: unknown) {
+      toast.error(t("Xatolik"), extractErrorMessage(err, t("Karta tekshirib bo'lmadi")));
+      updateActiveCustomerSession((s) => ({
+        ...s,
+        giftCardType: null,
+        giftCardAmount: null,
+        giftCardPercent: null,
+        giftCardExpiresAt: null,
+      }));
+    } finally {
+      setGiftCardLookupLoading(false);
+    }
+  }
+
+  function resetActivateModal() {
+    setGiftCardActivateBarcode("");
+    setGiftCardActivateType("FIXED_AMOUNT");
+    setGiftCardActivateAmount(null);
+    setGiftCardActivatePercent(null);
+    setGiftCardActivateDuration(null);
+  }
+
+  async function handleActivateGiftCard() {
+    const barcode = giftCardActivateBarcode.trim();
+    if (!barcode) {
+      toast.error(t("Xatolik"), t("Barcode kiriting"));
+      return;
+    }
+    if (giftCardActivateType === "FIXED_AMOUNT" && !giftCardActivateAmount) {
+      toast.error(t("Xatolik"), t("Summa tanlang"));
+      return;
+    }
+    if (giftCardActivateType === "PERCENTAGE" && (!giftCardActivatePercent || !giftCardActivateDuration)) {
+      toast.error(t("Xatolik"), t("Foiz va muddatni tanlang"));
+      return;
+    }
+    setGiftCardActivating(true);
+    try {
+      await salesService.activateGiftCard({
+        barcode,
+        type: giftCardActivateType,
+        amount: giftCardActivateType === "FIXED_AMOUNT" ? (giftCardActivateAmount ?? undefined) : undefined,
+        percent: giftCardActivateType === "PERCENTAGE" ? (giftCardActivatePercent ?? undefined) : undefined,
+        durationMonths: giftCardActivateType === "PERCENTAGE" ? (giftCardActivateDuration ?? undefined) : undefined,
+      });
+      const label = giftCardActivateType === "FIXED_AMOUNT"
+        ? `${formatMoney(giftCardActivateAmount ?? 0)} so'm`
+        : `${giftCardActivatePercent}% · ${giftCardActivateDuration} oy`;
+      toast.success(t("Karta faollashtirildi"), `${label} · ${barcode}`);
+      setGiftCardActivateOpen(false);
+      resetActivateModal();
+    } catch (err: unknown) {
+      toast.error(t("Xatolik"), extractErrorMessage(err, t("Faollashtirb bo'lmadi")));
+    } finally {
+      setGiftCardActivating(false);
+    }
   }
 
   async function confirmCashback() {
@@ -891,6 +1019,10 @@ export default function SalesCashierPage() {
     const currentCashbackBarcode = currentCustomer?.cashbackBarcode?.trim() ?? "";
     const currentRedeemedAmount = parseMoneyInput(currentCustomer?.cashbackRedeemAmount ?? "");
     const currentCashbackUser = currentCustomer?.cashbackUser ?? null;
+    const currentGiftCardBarcode = currentCustomer?.giftCardBarcode?.trim() ?? "";
+    const currentGiftCardType = currentCustomer?.giftCardType ?? null;
+    const currentGiftCardAmount = currentCustomer?.giftCardAmount ?? null;
+    const currentGiftCardPercent = currentCustomer?.giftCardPercent ?? null;
 
     if (submitInProgressRef.current) return;
     if (currentCartItems.length === 0) {
@@ -982,6 +1114,30 @@ export default function SalesCashierPage() {
         }
       }
 
+      // Gift card
+      let giftCardDiscount = 0;
+      const hasGiftCard = currentGiftCardBarcode && sold.length > 0 &&
+        (currentGiftCardType === "FIXED_AMOUNT" ? !!currentGiftCardAmount : !!currentGiftCardPercent);
+      if (hasGiftCard) {
+        try {
+          const gcResult = await salesService.useGiftCard(
+            currentGiftCardBarcode,
+            sold.map((s) => s.id),
+            grossSaleAmount,
+          );
+          giftCardDiscount = gcResult.amount;
+          toast.success(
+            t("Karta ishlatildi"),
+            `${formatMoney(gcResult.amount)} so'm chegirma qo'llanildi`,
+          );
+        } catch (gcError: unknown) {
+          toast.error(
+            t("Karta xatolik"),
+            extractErrorMessage(gcError, t("Sotuv saqlandi, lekin karta chegirmasi qo'llanilmadi")),
+          );
+        }
+      }
+
       const receiptItems = currentCartItems.map((item) => ({
         name: item.name,
         quantity: item.quantity,
@@ -1003,8 +1159,10 @@ export default function SalesCashierPage() {
         subtotal: grossSaleAmount,
         cashbackUsed,
         cashbackEarned,
-        finalPaid: Math.max(0, grossSaleAmount - cashbackUsed),
+        finalPaid: Math.max(0, grossSaleAmount - cashbackUsed - giftCardDiscount),
         cashbackBalance,
+        giftCardDiscount: giftCardDiscount > 0 ? giftCardDiscount : undefined,
+        giftCardPercent: giftCardDiscount > 0 && currentGiftCardPercent ? currentGiftCardPercent : undefined,
         items: receiptItems,
       };
 
@@ -1121,6 +1279,13 @@ export default function SalesCashierPage() {
           ) : null}
           <button
             type="button"
+            onClick={() => setGiftCardActivateOpen(true)}
+            className="rounded-xl border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 md:text-sm"
+          >
+            🎁 {t("Karta faollashtirish")}
+          </button>
+          <button
+            type="button"
             onClick={() => router.push("/sales/sell")}
             className="rounded-xl border border-cream-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-cocoa-700 hover:bg-cream-100 md:text-sm"
           >
@@ -1149,10 +1314,34 @@ export default function SalesCashierPage() {
                 <span>{t("Hammasi")}:</span>
                 <span className="font-semibold text-cocoa-900">{formatMoney(cartTotal)}</span>
               </div>
-              <div className="flex items-center justify-between text-cocoa-600">
-                <span>{t("Chegirma")}:</span>
-                <span className="font-semibold text-cocoa-900">0</span>
-              </div>
+              {giftCardType === "FIXED_AMOUNT" && giftCardAmount != null && giftCardAmount > 0 ? (
+                <>
+                  <div className="flex items-center justify-between text-emerald-600">
+                    <span>🎁 {t("Karta")}:</span>
+                    <span className="font-semibold">-{formatMoney(giftCardAmount)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-cocoa-700 font-semibold">
+                    <span>{t("To'lanadigan")}:</span>
+                    <span>{formatMoney(Math.max(0, cartTotal - giftCardAmount))}</span>
+                  </div>
+                </>
+              ) : giftCardType === "PERCENTAGE" && giftCardPercent ? (
+                <>
+                  <div className="flex items-center justify-between text-emerald-600">
+                    <span>🎁 {t("Karta")}:</span>
+                    <span className="font-semibold">-{giftCardPercent}% (≈{formatMoney(Math.floor(cartTotal * giftCardPercent / 100))})</span>
+                  </div>
+                  <div className="flex items-center justify-between text-cocoa-700 font-semibold">
+                    <span>{t("To'lanadigan")}:</span>
+                    <span>{formatMoney(Math.max(0, cartTotal - Math.floor(cartTotal * giftCardPercent / 100)))}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-between text-cocoa-600">
+                  <span>{t("Chegirma")}:</span>
+                  <span className="font-semibold text-cocoa-900">0</span>
+                </div>
+              )}
             </div>
             <button
               type="button"
@@ -1681,15 +1870,16 @@ export default function SalesCashierPage() {
         </div>
       </Modal>
 
-      <Modal title={t("Telegram cashback")} open={cashbackOpen} onClose={() => setCashbackOpen(false)}>
+      <Modal title={t("To'lov chegirmalari")} open={cashbackOpen} onClose={() => setCashbackOpen(false)}>
         <div className="space-y-4">
-          <p className="text-sm text-cocoa-700">
-            {t("Telegram bot bergan cashback barcode ni kiriting. Kerak bo'lmasa o'tkazib yuboring.")}
-          </p>
+          {/* ── Telegram Cashback ── */}
           <div className="space-y-2">
-            <label className="block text-xs font-semibold uppercase tracking-wide text-cocoa-500">
-              {t("Cashback barcode")}
-            </label>
+            <div className="text-xs font-bold uppercase tracking-wide text-cocoa-500">
+              {t("Telegram Cashback")}
+            </div>
+            <p className="text-xs text-cocoa-600">
+              {t("Telegram bot bergan cashback barcode ni kiriting. Kerak bo'lmasa o'tkazib yuboring.")}
+            </p>
             <input
               ref={cashbackInputRef}
               value={cashbackBarcode}
@@ -1741,6 +1931,68 @@ export default function SalesCashierPage() {
               </p>
             </div>
           </div>
+
+          {/* ── Gift Card ── */}
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 space-y-2">
+            <div className="text-xs font-bold uppercase tracking-wide text-emerald-700">
+              🎁 {t("Aksiya kartasi")}
+            </div>
+            <p className="text-xs text-cocoa-600">
+              {t("Karta barcodeini skan qiling. Topilsa summa chegirilib beriladi.")}
+            </p>
+            <div className="flex gap-2">
+              <input
+                ref={giftCardInputRef}
+                value={giftCardBarcode}
+                onChange={(e) =>
+                  updateActiveCustomerSession((s) => ({
+                    ...s,
+                    giftCardBarcode: e.target.value,
+                    giftCardType: s.giftCardBarcode !== e.target.value ? null : s.giftCardType,
+                    giftCardAmount: s.giftCardBarcode !== e.target.value ? null : s.giftCardAmount,
+                    giftCardPercent: s.giftCardBarcode !== e.target.value ? null : s.giftCardPercent,
+                    giftCardExpiresAt: s.giftCardBarcode !== e.target.value ? null : s.giftCardExpiresAt,
+                  }))
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void handleGiftCardCheck();
+                  }
+                }}
+                placeholder={t("Karta barcodeini skan qiling")}
+                className="flex-1 rounded-xl border border-emerald-300 bg-white px-3 py-2 text-sm text-cocoa-900 outline-none ring-emerald-300 transition focus:ring-2"
+              />
+              <button
+                type="button"
+                onClick={() => void handleGiftCardCheck()}
+                disabled={giftCardLookupLoading || !giftCardBarcode.trim()}
+                className="rounded-xl border border-emerald-400 bg-white px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+              >
+                {giftCardLookupLoading ? "..." : t("Tekshir")}
+              </button>
+            </div>
+            {giftCardType === "FIXED_AMOUNT" && giftCardAmount != null ? (
+              <div className="rounded-xl border border-emerald-300 bg-emerald-100 px-3 py-2 text-sm font-semibold text-emerald-800">
+                ✅ {t("Karta topildi")}: <span className="text-emerald-900">{formatMoney(giftCardAmount)} so'm</span> {t("chegirma")}
+              </div>
+            ) : giftCardType === "PERCENTAGE" && giftCardPercent ? (
+              <div className="rounded-xl border border-emerald-300 bg-emerald-100 px-3 py-2 text-sm font-semibold text-emerald-800">
+                ✅ {t("Foizli karta")}: <span className="text-emerald-900">{giftCardPercent}%</span> {t("chegirma")}
+                {giftCardExpiresAt ? (
+                  <span className="ml-1 text-xs font-normal text-emerald-700">
+                    · {new Date(giftCardExpiresAt).toLocaleDateString("uz-UZ")} {t("gacha")}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+            {giftCardBarcode.trim() && !giftCardType ? (
+              <p className="text-[11px] text-cocoa-400">
+                {t("Enter yoki Tekshir tugmasini bosing")}
+              </p>
+            ) : null}
+          </div>
+
           <div className="flex flex-wrap justify-end gap-2">
             <button
               type="button"
@@ -1759,6 +2011,148 @@ export default function SalesCashierPage() {
               className="rounded-xl bg-berry-700 px-4 py-2 text-sm font-semibold text-cream-50 hover:bg-berry-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {cashbackLookupLoading ? t("Tekshirilmoqda...") : t("Tasdiqlash")}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Gift Card Activation Modal ── */}
+      <Modal
+        title={`🎁 ${t("Karta faollashtirish")}`}
+        open={giftCardActivateOpen}
+        onClose={() => { setGiftCardActivateOpen(false); resetActivateModal(); }}
+      >
+        <div className="space-y-4">
+          {/* ── Karta turi tanlash ── */}
+          <div className="flex gap-2">
+            {(["FIXED_AMOUNT", "PERCENTAGE"] as const).map((tp) => (
+              <button
+                key={tp}
+                type="button"
+                onClick={() => {
+                  setGiftCardActivateType(tp);
+                  setGiftCardActivateAmount(null);
+                  setGiftCardActivatePercent(null);
+                  setGiftCardActivateDuration(null);
+                }}
+                className={`flex-1 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
+                  giftCardActivateType === tp
+                    ? "border-emerald-600 bg-emerald-600 text-white"
+                    : "border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-50"
+                }`}
+              >
+                {tp === "FIXED_AMOUNT" ? t("Bir martalik") : t("Foizli karta")}
+              </button>
+            ))}
+          </div>
+
+          {/* ── Barcode ── */}
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-cocoa-500 mb-1">
+              {t("Karta barcodi")}
+            </label>
+            <input
+              value={giftCardActivateBarcode}
+              onChange={(e) => setGiftCardActivateBarcode(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
+              placeholder={t("Barcodeini skan qiling yoki kiriting")}
+              className="w-full rounded-xl border border-cream-300 bg-white px-3 py-2 text-sm text-cocoa-900 outline-none ring-berry-300 transition focus:ring-2"
+            />
+          </div>
+
+          {/* ── FIXED_AMOUNT: Summa ── */}
+          {giftCardActivateType === "FIXED_AMOUNT" && (
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-cocoa-500 mb-2">
+                {t("Summa")}
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {[30000, 50000, 100000].map((amt) => (
+                  <button
+                    key={amt}
+                    type="button"
+                    onClick={() => setGiftCardActivateAmount(amt)}
+                    className={`rounded-xl border px-3 py-3 text-sm font-bold transition ${
+                      giftCardActivateAmount === amt
+                        ? "border-emerald-600 bg-emerald-600 text-white"
+                        : "border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-50"
+                    }`}
+                  >
+                    {formatMoney(amt)}
+                    <div className="text-[10px] font-normal opacity-70">so'm</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── PERCENTAGE: Foiz + Muddat ── */}
+          {giftCardActivateType === "PERCENTAGE" && (
+            <>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-cocoa-500 mb-2">
+                  {t("Foiz")}
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[3, 5, 10].map((pct) => (
+                    <button
+                      key={pct}
+                      type="button"
+                      onClick={() => setGiftCardActivatePercent(pct)}
+                      className={`rounded-xl border px-3 py-3 text-sm font-bold transition ${
+                        giftCardActivatePercent === pct
+                          ? "border-emerald-600 bg-emerald-600 text-white"
+                          : "border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-50"
+                      }`}
+                    >
+                      {pct}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-cocoa-500 mb-2">
+                  {t("Muddat")}
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[3, 6].map((mo) => (
+                    <button
+                      key={mo}
+                      type="button"
+                      onClick={() => setGiftCardActivateDuration(mo)}
+                      className={`rounded-xl border px-3 py-3 text-sm font-bold transition ${
+                        giftCardActivateDuration === mo
+                          ? "border-emerald-600 bg-emerald-600 text-white"
+                          : "border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-50"
+                      }`}
+                    >
+                      {mo} {t("oy")}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => { setGiftCardActivateOpen(false); resetActivateModal(); }}
+              className="rounded-xl border border-cream-300 bg-white px-4 py-2 text-sm font-semibold text-cocoa-700 hover:bg-cream-100"
+            >
+              {t("Bekor qilish")}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleActivateGiftCard()}
+              disabled={
+                giftCardActivating ||
+                !giftCardActivateBarcode.trim() ||
+                (giftCardActivateType === "FIXED_AMOUNT" ? !giftCardActivateAmount : !giftCardActivatePercent || !giftCardActivateDuration)
+              }
+              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {giftCardActivating ? t("Saqlanmoqda...") : t("Faollashtirish")}
             </button>
           </div>
         </div>

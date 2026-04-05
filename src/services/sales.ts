@@ -42,6 +42,19 @@ type ShiftCashOutCreateDTO = {
   note?: string;
 };
 
+export type GiftCardActivateDTO = {
+  barcode: string;
+  type: "FIXED_AMOUNT" | "PERCENTAGE";
+  amount?: number;
+  percent?: number;
+  durationMonths?: number;
+};
+
+export type GiftCardCheckResult =
+  | { active: false; expired?: boolean }
+  | { active: true; type: "FIXED_AMOUNT"; amount: number; createdAt: string }
+  | { active: true; type: "PERCENTAGE"; percent: number; expiresAt: string; createdAt: string };
+
 const SHIFT_FETCH_TIMEOUT_MS = 4500;
 const SHIFT_OPEN_TIMEOUT_MS = 6000;
 const SHIFT_RETRY_DELAYS_MS = [0, 500] as const;
@@ -710,6 +723,15 @@ const local = {
   async pendingOrdersCount(): Promise<number> {
     return 0;
   },
+  async activateGiftCard(_dto: GiftCardActivateDTO): Promise<{ ok: true }> {
+    throw new Error("Not available in offline mode");
+  },
+  async checkGiftCard(_barcode: string): Promise<GiftCardCheckResult> {
+    return { active: false };
+  },
+  async useGiftCard(_barcode: string, _saleIds: string[], _grossAmount: number): Promise<{ amount: number }> {
+    throw new Error("Not available in offline mode");
+  },
 };
 
 export interface ShopOrder {
@@ -878,6 +900,23 @@ const api = {
   },
   async pendingOrdersCount(): Promise<number> {
     return apiFetch<number>("/sales/shop-orders/pending-count");
+  },
+  async activateGiftCard(dto: GiftCardActivateDTO): Promise<{ ok: true }> {
+    return apiFetch<{ ok: true }>("/sales/gift-card/activate", {
+      method: "POST",
+      body: JSON.stringify(dto),
+    });
+  },
+  async checkGiftCard(barcode: string): Promise<GiftCardCheckResult> {
+    return apiFetch<GiftCardCheckResult>(
+      `/sales/gift-card/check/${encodeURIComponent(barcode)}`
+    );
+  },
+  async useGiftCard(barcode: string, saleIds: string[], grossAmount: number): Promise<{ amount: number }> {
+    return apiFetch<{ amount: number }>("/sales/gift-card/use", {
+      method: "POST",
+      body: JSON.stringify({ barcode, saleIds, grossAmount }),
+    });
   },
 };
 

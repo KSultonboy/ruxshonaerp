@@ -35,6 +35,10 @@ interface ReceiptProps {
     items?: ReceiptLineItem[];
     /** Avvalgi (transfer yozilishidan oldingi) do'kon qarzi */
     previousDebt?: number;
+    /** Gift card chegirmasi */
+    giftCardDiscount?: number;
+    /** Foizli karta foizi (PERCENTAGE turi uchun) */
+    giftCardPercent?: number;
   };
 }
 
@@ -249,6 +253,16 @@ export default function Receipt({ type, data }: ReceiptProps) {
               <span>{t("Yozilgan cashback")}:</span>
               <span className="shrink-0 pl-2 text-right font-semibold">
                 +{formatDigitsWithSpaces(String(receiptMeta.cashbackEarned))} so'm
+              </span>
+            </div>
+          ) : null}
+          {data.giftCardDiscount != null && data.giftCardDiscount > 0 ? (
+            <div className="mt-0.5 flex items-center justify-between text-[10px]">
+              <span>{t("Aksiya kartasi")}:</span>
+              <span className="shrink-0 pl-2 text-right font-semibold text-emerald-700">
+                {data.giftCardPercent
+                  ? `-${data.giftCardPercent}% (${formatDigitsWithSpaces(String(data.giftCardDiscount))} so'm)`
+                  : `-${formatDigitsWithSpaces(String(data.giftCardDiscount))} so'm`}
               </span>
             </div>
           ) : null}
