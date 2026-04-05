@@ -251,6 +251,7 @@ export default function ProductsPage() {
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
     return products.filter((p) => {
+      if (!p.active) return false;
       const okQ = qq ? p.name.toLowerCase().includes(qq) : true;
       return okQ;
     });
