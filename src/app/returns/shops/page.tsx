@@ -27,7 +27,8 @@ type ReturnReceiptData = {
   quantity: number;
   sourceLabel: string;
   sourceName: string;
-  items: Array<{ name: string; quantity: number }>;
+  items: Array<{ name: string; quantity: number; price?: number }>;
+  previousDebt?: number;
 };
 
 function createDraftRow(): ItemDraft {
@@ -133,14 +134,26 @@ export default function ReturnsShopsPage() {
     submitInProgressRef.current = true;
     setLoading(true);
     try {
+      let previousDebt: number | undefined;
+      try {
+        const debtInfo = await shopsService.getDebt(shopId);
+        previousDebt = debtInfo.totalDebt ?? debtInfo.calculatedDebt;
+      } catch {
+        // qarz ma'lumoti olinmasa chekda ko'rsatmaymiz
+      }
+
       const savedReturn = editingReturnId
         ? await returnsService.update(editingReturnId, { sourceType: "SHOP", shopId, note, items: payload })
         : await returnsService.create({ sourceType: "SHOP", shopId, note, items: payload });
 
-      const receiptItems = payload.map((item) => ({
-        name: products.find((product) => product.id === item.productId)?.name ?? item.productId,
-        quantity: item.quantity,
-      }));
+      const receiptItems = payload.map((item) => {
+        const product = products.find((entry) => entry.id === item.productId);
+        return {
+          name: product?.name ?? item.productId,
+          quantity: item.quantity,
+          price: product?.shopPrice ?? product?.salePrice ?? product?.price ?? 0,
+        };
+      });
       const totalQuantity = receiptItems.reduce((sum, item) => sum + item.quantity, 0);
       const receiptData: ReturnReceiptData = {
         id: savedReturn.id ?? String(Date.now()),
@@ -150,6 +163,7 @@ export default function ReturnsShopsPage() {
         sourceLabel: t("Do'kon"),
         sourceName: shops.find((item) => item.id === shopId)?.name ?? "-",
         items: receiptItems,
+        previousDebt,
       };
 
       flushSync(() => {
