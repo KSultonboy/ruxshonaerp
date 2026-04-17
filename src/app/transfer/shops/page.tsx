@@ -227,7 +227,10 @@ export default function TransferShopsPage() {
       try {
         const debtInfo = await shopsService.getDebt(shopId);
         previousDebt = debtInfo.totalDebt ?? debtInfo.calculatedDebt;
-      } catch { /* qarz ma'lumoti bo'lmasa chekda ko'rsatmaymiz */ }
+      } catch (debtError: unknown) {
+        const message = debtError instanceof Error ? debtError.message : t("Qarz ma'lumoti olinmadi");
+        toast.error(t("Xatolik"), message);
+      }
 
       const savedTransfer = editingTransferId
         ? await transfersService.update(editingTransferId, { targetType: "SHOP", shopId, note, items: payload })

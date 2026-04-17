@@ -143,7 +143,9 @@ export default function Receipt({ type, data }: ReceiptProps) {
   const hasPriceColumns = lineItems.some((item) => Number(item.price || 0) > 0) && (type === "SALE" || type === "TRANSFER");
   const sourceLabel = data.sourceLabel || t("Filial");
   const sourceName = data.sourceName || data.branchName || t("Markaziy");
-  const previousDebt = Number(data.previousDebt ?? 0) || 0;
+  const parsedPreviousDebt = Number(data.previousDebt);
+  const hasPreviousDebt = Number.isFinite(parsedPreviousDebt);
+  const previousDebt = hasPreviousDebt ? parsedPreviousDebt : 0;
 
   return (
     <div
@@ -184,11 +186,11 @@ export default function Receipt({ type, data }: ReceiptProps) {
               <span>{t("Kimga")}:</span>
               <span className="shrink-0 pl-2 text-right font-semibold">{data.toBranch || "-"}</span>
             </div>
-            {data.previousDebt !== undefined && (
+            {hasPreviousDebt && (
               <div className="mt-1 border-t border-dashed border-black/40 pt-1 flex items-center justify-between gap-2 font-bold">
                 <span>{t("Joriy qarz")}:</span>
                 <span className="shrink-0 pl-2 text-right">
-                  {formatDigitsWithSpaces(String(Math.round(data.previousDebt)))} so'm
+                  {formatDigitsWithSpaces(String(Math.round(previousDebt)))} so'm
                 </span>
               </div>
             )}
@@ -343,18 +345,20 @@ export default function Receipt({ type, data }: ReceiptProps) {
                 <div className="flex items-center justify-between text-[11px]">
                   <span>{t("Hozirgi qarz")}:</span>
                   <span className="shrink-0 pl-2 text-right font-semibold">
-                    {formatDigitsWithSpaces(String(Math.round(previousDebt)))} so'm
+                    {hasPreviousDebt ? `${formatDigitsWithSpaces(String(Math.round(previousDebt)))} so'm` : "-"}
                   </span>
                 </div>
               </div>
-              <div className="mt-1 border-t-2 border-black pt-1 flex items-center justify-between text-[14px] font-bold">
-                <span>{t("Umumiy qarz")}:</span>
-                <span className="shrink-0 pl-2 text-right">
-                  {formatDigitsWithSpaces(String(Math.round(previousDebt + receiptMeta.total)))} so'm
-                </span>
-              </div>
+              {hasPreviousDebt ? (
+                <div className="mt-1 border-t-2 border-black pt-1 flex items-center justify-between text-[14px] font-bold">
+                  <span>{t("Umumiy qarz")}:</span>
+                  <span className="shrink-0 pl-2 text-right">
+                    {formatDigitsWithSpaces(String(Math.round(previousDebt + receiptMeta.total)))} so'm
+                  </span>
+                </div>
+              ) : null}
             </>
-          ) : type === "RETURN" && data.previousDebt !== undefined ? (
+          ) : type === "RETURN" && hasPreviousDebt ? (
             <>
               <div className="mt-1 border-t border-dashed border-black/40 pt-1">
                 <div className="flex items-center justify-between text-[11px]">
